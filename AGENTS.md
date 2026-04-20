@@ -78,6 +78,70 @@ priority:
 See `docs/security.md` for the threat model, known caveats (ReDoS,
 Unicode case-insensitive, UTF-8 encoding), and the fail-closed checklist.
 
+## Mandatory security checks & risk analysis (every change)
+
+**Every commit** — perf tuning, refactor, new feature, doc, build change,
+bump, anything — **must include an explicit security-impact check**. No
+exceptions, even for "obviously harmless" edits. Bypass bugs hide in
+one-line changes; the bundle-encoder bypass was literally three `throw`
+statements in a utility function.
+
+Before pushing / merging, answer these five questions in the commit
+message (or PR description). If the answer to any is "I don't know,"
+stop and investigate until you do.
+
+1. **What's the security impact?** State it plainly: "no impact", "may
+   bypass detection under condition X", "narrows an existing exposure",
+   "adds a new code path attackers can reach", etc. If you can't
+   articulate it, you haven't thought it through yet.
+
+2. **Does any new code path handle a `throw` / reject that an attacker
+   could force?** Follow every exception upward to its `catch`. If the
+   catch re-throws, logs, or calls `next()`, is the request still
+   evaluated or does it reach the handler unfiltered? Throwing into a
+   path that falls through to `next()` is a bypass — clip, fallback,
+   or fail-closed instead.
+
+3. **Does it change what Coraza sees?** Encoding changes, truncation,
+   filtering, normalization, caching — any of these can make Coraza
+   evaluate a different input than what the attacker actually sent.
+   Confirm behavioral equivalence or document the gap in
+   `docs/security.md`.
+
+4. **Does it change when rules fire?** Skipping a phase, reordering
+   calls, batching, short-circuiting on a predicate — these can cause
+   anomaly-score rules (like CRS `949110`) to never reach their
+   evaluation point. The `exp/batch-phases` audit caught a 60% attack
+   miss rate from exactly this class of change.
+
+5. **Are the defaults secure?** New option? Default must be the strict
+   choice. New fast-path? Default off, opt-in via env var or config.
+   New output format? Default must produce complete data, optimizations
+   behind a flag.
+
+**How to verify**:
+
+- Run `pnpm -F @coraza/bench k6 -- --adapters=express` and compare
+  `blocked_attacks` / `missed_attacks` vs. `main`. Both must stay
+  the same or improve. A throughput gain that drops blocks by >5% is a
+  regression, not an optimization.
+- Run `pnpm -r test` — tests enforce coverage thresholds (≥98%
+  lines/funcs/stmts on core; ≥85% branches on adapters). Write a test
+  for any new code path, especially the error / attacker-controlled ones.
+- For changes to the WAF data flow (anything in `wasm/`,
+  `packages/core/src/transaction.ts`, `packages/core/src/wasm.ts`, or any
+  adapter's `src/index.ts`): additionally run the attack-shaped scenarios
+  in `test/e2e/scenarios.spec.ts`.
+
+**How to document**: the commit message must spell out the
+security-impact answer. "No impact, pure lint fix" is fine for genuine
+cosmetic changes. For anything touching request flow, include a
+`Security:` or `Risk:` stanza citing which of the five questions apply.
+
+**Reviewer duty**: if you merge a change without a security check, you
+own the bypass when it's found. Reject the PR and ask for it. This is
+non-negotiable.
+
 ## Architectural invariants
 
 1. **One WASM ABI**. All adapters go through `@coraza/core`. Never add a
