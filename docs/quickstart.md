@@ -195,5 +195,6 @@ processRequestBundle({
 → returns 0 (pass) | 1 (blocked) | throws (fail-closed)
 ```
 
-See `docs/security.md` for why the atomic bundle matters — the prior
-split-phase flow missed 60% of GET-based attacks.
+See `docs/security.md` for why the atomic bundle matters — it
+guarantees phase 2 runs even on body-less requests, which is where
+CRS's anomaly-score evaluator fires.

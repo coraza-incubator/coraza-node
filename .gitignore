@@ -19,3 +19,19 @@ wasm/*.wasm
 
 # NestJS
 .nest/
+
+# Next.js build artifacts inside examples
+examples/*/.next/
+examples/*/next-env.d.ts
+examples/*/out/
+examples/*/.turbo/
+
+# Playwright artifacts inside packages
+packages/*/test-results/
+packages/*/playwright-report/
+
+# Editor / OS
+*.swp
+.idea/
+.vscode/
+Thumbs.db

@@ -13,8 +13,8 @@
 //   - Evaluates the full request (phases 1 + 2) in a single `preHandler`
 //     hook using `processRequestBundle`. preHandler runs after Fastify's
 //     body parser, so req.body is in hand. Running both phases together
-//     matches the batch-phases fix on @coraza/express — prior to that, a
-//     separate onRequest + preHandler sequence silently missed phase 2
+//     matches the pattern used in @coraza/express — a separate onRequest
+//     + preHandler sequence would miss CRS's phase-2 anomaly evaluator
 //     on body-less requests, bypassing CRS's anomaly-score rule 949110.
 //   - Fails closed on any WAF error (default `onWAFError: 'block'`).
 //     Matches docs/security.md's threat model.

@@ -16,9 +16,9 @@
 // @coraza/express and @coraza/fastify so the mental model transfers.
 //
 // Design notes:
-//   - Uses `processRequestBundle` so phases 1+2 run atomically. The prior
-//     sequential flow silently missed GET-based attacks (see
-//     docs/security.md).
+//   - Uses `processRequestBundle` so phases 1 and 2 run atomically; CRS's
+//     phase-2 anomaly evaluator always fires, including on body-less GETs
+//     (see docs/security.md).
 //   - Fails closed on any WAF error (default `onWAFError: 'block'`).
 //   - Logging: Next has no per-request logger; we use the WAF's.
 

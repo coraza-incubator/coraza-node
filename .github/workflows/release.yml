@@ -12,7 +12,9 @@ name: Release
 
 on:
   push:
-    branches: [main]
+    # `develop` is the integration branch — publishes pre-release tags
+    # (0.x.y-alpha.N) when we're in pre mode. `main` is the stable line.
+    branches: [main, develop]
 
 concurrency: release
 

@@ -62,13 +62,11 @@ describe('@coraza/express', () => {
   })
 
   it('runs body phase regardless of isRequestBodyAccessible (bundle always fires phase 2)', async () => {
-    // With batch-phases, phase 2 runs even when body access is disabled —
-    // matches Coraza's intended flow (anomaly score block evaluates at
-    // phase 2). The isRequestBodyAccessible predicate is a hint for
-    // adapters deciding whether to serialize a body, not a gate on
-    // whether phase 2 runs at all. Prior to batch-phases we were
-    // silently skipping phase 2 on body-less requests — a 60% attack
-    // miss rate. See docs/security.md.
+    // The fused bundle runs phase 2 even when body access is disabled —
+    // matches Coraza's intended flow: the anomaly-score block evaluates
+    // at phase 2, so it must run for every request, including body-less
+    // GETs. `isRequestBodyAccessible` is a hint for adapters deciding
+    // whether to serialize a body, not a gate on whether phase 2 runs.
     const { waf, state } = mockWAF('block', {
       onBody: () => ({ ruleId: 1, action: 'deny', status: 403, data: 'fires at phase 2' }),
     })

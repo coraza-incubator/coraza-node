@@ -98,10 +98,9 @@ export class CorazaGuard implements CanActivate {
     try {
       if (await tx.isRuleEngineOff()) return true
 
-      // Phases 1+2 run atomically via the fused bundle call. The prior
-      // split-phase flow silently missed 60% of GET-based attacks because
-      // CRS's anomaly evaluator at phase 2 never fired. See
-      // docs/security.md.
+      // Phases 1 and 2 run atomically via the fused bundle call so CRS's
+      // anomaly evaluator at phase 2 always fires, including on body-less
+      // GET requests. See docs/security.md.
       const interrupted = await tx.processRequestBundle(
         {
           method: req.method,

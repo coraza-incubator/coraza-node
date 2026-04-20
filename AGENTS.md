@@ -64,11 +64,10 @@ priority:
   otherwise can't evaluate a request, the default MUST be to block
   (`onWAFError: 'block'` in adapters). Fail-open is an opt-in for
   availability-critical deployments and must be explicit.
-- **Any perf experiment must measure block rate, not just RPS.** The
-  batch-phases experiment shipped a +1.4% throughput change that also
-  fixed a 60% attack-miss bug — we only caught that because the k6
-  scenario counts `blocked` separately. Keep it that way. A perf change
-  that ships unnoticed attack escapes is a bug, not an optimization.
+- **Any perf change must measure block rate, not just RPS.** The
+  `bench/k6` scenario counts `blocked` separately from throughput.
+  A throughput gain that drops the block rate is a bug, not an
+  optimization.
 - **Default to stricter.** Host-regex routes to V8 (faster but backtracking-capable).
   Keep it default-on, but every bypass-shaped defensive check (like
   method/URL/addr length clipping in `encodeRequestBundle`) must keep
@@ -83,8 +82,7 @@ Unicode case-insensitive, UTF-8 encoding), and the fail-closed checklist.
 **Every commit** — perf tuning, refactor, new feature, doc, build change,
 bump, anything — **must include an explicit security-impact check**. No
 exceptions, even for "obviously harmless" edits. Bypass bugs hide in
-one-line changes; the bundle-encoder bypass was literally three `throw`
-statements in a utility function.
+one-line changes.
 
 Before pushing / merging, answer these five questions in the commit
 message (or PR description). If the answer to any is "I don't know,"
@@ -111,8 +109,8 @@ stop and investigate until you do.
 4. **Does it change when rules fire?** Skipping a phase, reordering
    calls, batching, short-circuiting on a predicate — these can cause
    anomaly-score rules (like CRS `949110`) to never reach their
-   evaluation point. The `exp/batch-phases` audit caught a 60% attack
-   miss rate from exactly this class of change.
+   evaluation point. Phase 2 must always run, even on body-less verbs,
+   for the anomaly block to fire.
 
 5. **Are the defaults secure?** New option? Default must be the strict
    choice. New fast-path? Default off, opt-in via env var or config.
@@ -121,10 +119,9 @@ stop and investigate until you do.
 
 **How to verify**:
 
-- Run `pnpm -F @coraza/bench k6 -- --adapters=express` and compare
-  `blocked_attacks` / `missed_attacks` vs. `main`. Both must stay
-  the same or improve. A throughput gain that drops blocks by >5% is a
-  regression, not an optimization.
+- Run `pnpm -F @coraza/bench k6 -- --adapters=express` and check
+  that `missed_attacks` is 0 and `blocked_attacks` matches the total
+  attack count in the run. Any gap means the change opened a bypass.
 - Run `pnpm -r test` — tests enforce coverage thresholds (≥98%
   lines/funcs/stmts on core; ≥85% branches on adapters). Write a test
   for any new code path, especially the error / attacker-controlled ones.

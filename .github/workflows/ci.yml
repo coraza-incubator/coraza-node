@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -32,6 +32,10 @@ jobs:
           path: packages/core/src/wasm/coraza.wasm
           retention-days: 7
 
+  # Selective testing: Turbo only runs tasks for packages whose inputs
+  # changed since $BASE plus the packages that depend on them. So a
+  # change in @coraza/core re-tests every adapter (they depend on it),
+  # but a change in @coraza/express only re-tests express.
   test:
     name: Test (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
@@ -44,6 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
@@ -57,12 +62,47 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
-      - name: Typecheck
+
+      - name: Resolve change base
+        id: base
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            # On push: diff against the previous tip. Zero-SHA on a brand-new
+            # branch — in that case we fall back to a full run.
+            base="${{ github.event.before }}"
+          fi
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            echo "scope=full" >> "$GITHUB_OUTPUT"
+            echo "No base SHA — running the full matrix."
+          else
+            echo "scope=affected" >> "$GITHUB_OUTPUT"
+            echo "base=$base" >> "$GITHUB_OUTPUT"
+            echo "Base SHA: $base"
+          fi
+
+      - name: Typecheck (affected + dependents)
+        if: steps.base.outputs.scope == 'affected'
+        run: pnpm turbo run typecheck --filter=...[${{ steps.base.outputs.base }}]
+      - name: Build (affected + dependents)
+        if: steps.base.outputs.scope == 'affected'
+        run: pnpm turbo run build --filter=...[${{ steps.base.outputs.base }}]
+      - name: Unit tests (affected + dependents)
+        if: steps.base.outputs.scope == 'affected'
+        run: pnpm turbo run test:coverage --filter=...[${{ steps.base.outputs.base }}]
+
+      - name: Typecheck (full)
+        if: steps.base.outputs.scope == 'full'
         run: pnpm -r typecheck
-      - name: Build
+      - name: Build (full)
+        if: steps.base.outputs.scope == 'full'
         run: pnpm -r build
-      - name: Unit + coverage
+      - name: Unit tests (full)
+        if: steps.base.outputs.scope == 'full'
         run: pnpm -r test:coverage
+
       - name: Upload coverage
         if: matrix.node == '20'
         uses: codecov/codecov-action@0f8570b1a125f4937846a11fcfa3bcd548bd8c97 # v4.6.0
@@ -72,17 +112,14 @@ jobs:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   e2e:
-    name: E2E (${{ matrix.adapter }})
+    name: E2E (affected adapters)
     runs-on: ubuntu-latest
     needs: build-wasm
     timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        adapter: [express, fastify, next, nestjs]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
@@ -96,15 +133,43 @@ jobs:
           node-version: '20'
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
+
+      - name: Resolve change base
+        id: base
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            echo "scope=full" >> "$GITHUB_OUTPUT"
+          else
+            echo "scope=affected" >> "$GITHUB_OUTPUT"
+            echo "base=$base" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install Playwright browsers
-        run: pnpm -F @coraza/${{ matrix.adapter }} exec playwright install --with-deps chromium
-      - name: Build
+        run: pnpm -r --filter "@coraza/{express,fastify,next,nestjs}" exec playwright install --with-deps chromium
+
+      - name: Build (affected + dependents)
+        if: steps.base.outputs.scope == 'affected'
+        run: pnpm turbo run build --filter=...[${{ steps.base.outputs.base }}]
+      - name: E2E (affected + dependents)
+        if: steps.base.outputs.scope == 'affected'
+        run: pnpm turbo run e2e --filter=...[${{ steps.base.outputs.base }}]
+
+      - name: Build (full)
+        if: steps.base.outputs.scope == 'full'
         run: pnpm -r build
-      - name: E2E
-        run: pnpm -F @coraza/${{ matrix.adapter }} e2e
+      - name: E2E (full)
+        if: steps.base.outputs.scope == 'full'
+        run: pnpm -r e2e
+
       - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         if: always()
         with:
-          name: playwright-report-${{ matrix.adapter }}
-          path: packages/${{ matrix.adapter }}/playwright-report
+          name: playwright-reports
+          path: packages/*/playwright-report
           retention-days: 14

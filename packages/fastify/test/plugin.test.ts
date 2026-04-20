@@ -64,10 +64,9 @@ describe('@coraza/fastify', () => {
   })
 
   it('runs body phase regardless of isRequestBodyAccessible (bundle always fires phase 2)', async () => {
-    // With batch-phases, phase 2 runs atomically with phase 1. See
-    // docs/security.md — the previous split-phase flow silently missed
-    // 60% of GET-based attacks because CRS's anomaly evaluator at phase 2
-    // never ran.
+    // Phase 2 runs atomically with phase 1 via the fused bundle. CRS's
+    // anomaly-score evaluator lives at phase 2, so it must run on every
+    // request — including body-less GETs.
     const { app, state } = await appWith({
       onBody: () => ({ ruleId: 1, action: 'deny', status: 403, data: 'x' }),
     })
