@@ -22,12 +22,23 @@ the WASM via [`coraza-coreruleset`](https://github.com/corazawaf/coraza-corerule
 
 ```ts
 import express from 'express'
+import { createWAF } from '@coraza/core'
 import { coraza } from '@coraza/express'
 import { recommended } from '@coraza/coreruleset'
 
 const app = express()
-app.use(await coraza({ rules: recommended() }))
+app.use(express.json())
+
+const waf = await createWAF({ rules: recommended(), mode: 'block' })
+app.use(coraza({ waf }))
+
+app.get('/', (_req, res) => res.json({ ok: true }))
+app.listen(3000)
 ```
+
+Multi-core (4.5× throughput): swap `createWAF` for `createWAFPool`.
+Full tutorial with tuning, custom block responses, fail-open/closed,
+and detect-only mode: **[docs/quickstart.md](./docs/quickstart.md)**.
 
 ## Development
 
