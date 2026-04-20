@@ -252,7 +252,11 @@ function defaultSize(): number {
 
 function spawnSlot(logger: Logger): WorkerSlot {
   const workerUrl = new URL('./pool-worker.js', import.meta.url)
-  const worker = new Worker(fileURLToPath(workerUrl))
+  const worker = new Worker(fileURLToPath(workerUrl), {
+    // Don't inherit the parent's loader args (e.g. --import tsx) — the worker
+    // runs the pre-compiled pool-worker.js and doesn't need the TS loader.
+    execArgv: [],
+  })
   const pending = new Map<number, Pending>()
   const slot: WorkerSlot = {
     worker,
