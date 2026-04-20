@@ -6,6 +6,7 @@ import { WASI } from 'node:wasi'
 import { fileURLToPath } from 'node:url'
 import { Abi, type CorazaExports } from './abi.js'
 import { patchInitialMemory } from './wasmPatch.js'
+import { createMinimalWasi, useNativeWasi } from './wasi.js'
 import type { Logger } from './types.js'
 
 // CRS's regex compilation needs ~100 MiB of linear memory up front. TinyGo
@@ -41,7 +42,14 @@ export async function instantiate(
   const patched = patchInitialMemory(bytes, CORAZA_INITIAL_PAGES)
   const module = await WebAssembly.compile(patched as unknown as BufferSource)
 
-  const wasi = new WASI({
+  // Swap between node:wasi (full-featured, native binding) and our own
+  // 120-line JS shim based on CORAZA_WASI=minimal. The minimal shim is
+  // ~2-3× faster on hot WASI calls and drops a ~2 MB native dependency.
+  let memRef: WebAssembly.Memory | null = null
+  const minimal = useNativeWasi()
+    ? null
+    : createMinimalWasi({ logger, getMemory: () => memRef! })
+  const wasi = minimal ?? new WASI({
     version: 'preview1',
     args: [],
     env: {},
@@ -67,12 +75,15 @@ export async function instantiate(
 
   const instance = await WebAssembly.instantiate(module, imports)
   const exports = instance.exports as unknown as CorazaExports & { _start?: () => void }
+  // Bind the shim's getMemory closure before any WASI import fires.
+  memRef = exports.memory
 
   // WASI modules require _start for initialization.
+  const startable = instance as never
   if (typeof exports._start === 'function') {
-    wasi.start(instance as unknown as Parameters<typeof wasi.start>[0])
+    ;(wasi.start as (_: never) => void)(startable)
   } else if (typeof (exports as { _initialize?: () => void })._initialize === 'function') {
-    wasi.initialize(instance as unknown as Parameters<typeof wasi.initialize>[0])
+    ;(wasi.initialize as (_: never) => void)(startable)
   }
 
   const abi = new Abi(exports)
