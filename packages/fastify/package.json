@@ -1,6 +1,6 @@
 {
   "name": "@coraza/fastify",
-  "version": "0.1.0",
+  "version": "1.0.0-preview.0",
   "description": "Fastify plugin for Coraza WAF.",
   "license": "Apache-2.0",
   "author": "Juan Pablo Tosso <jptosso@gmail.com>",
@@ -9,7 +9,13 @@
     "url": "https://github.com/jptosso/coraza-node.git",
     "directory": "packages/fastify"
   },
-  "keywords": ["fastify", "waf", "coraza", "security", "plugin"],
+  "keywords": [
+    "fastify",
+    "waf",
+    "coraza",
+    "security",
+    "plugin"
+  ],
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -21,8 +27,14 @@
       "require": "./dist/index.cjs"
     }
   },
-  "files": ["dist", "README.md", "LICENSE"],
-  "engines": { "node": ">=22" },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsup",
     "test": "vitest run",

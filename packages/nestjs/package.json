@@ -1,6 +1,6 @@
 {
   "name": "@coraza/nestjs",
-  "version": "0.1.0",
+  "version": "1.0.0-preview.0",
   "description": "NestJS module + guard for Coraza WAF.",
   "license": "Apache-2.0",
   "author": "Juan Pablo Tosso <jptosso@gmail.com>",
@@ -9,7 +9,13 @@
     "url": "https://github.com/jptosso/coraza-node.git",
     "directory": "packages/nestjs"
   },
-  "keywords": ["nestjs", "nest", "waf", "coraza", "security"],
+  "keywords": [
+    "nestjs",
+    "nest",
+    "waf",
+    "coraza",
+    "security"
+  ],
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -21,8 +27,14 @@
       "require": "./dist/index.cjs"
     }
   },
-  "files": ["dist", "README.md", "LICENSE"],
-  "engines": { "node": ">=22" },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsup",
     "test": "vitest run",

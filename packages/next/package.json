@@ -1,6 +1,6 @@
 {
   "name": "@coraza/next",
-  "version": "0.1.0",
+  "version": "1.0.0-preview.0",
   "description": "Next.js middleware adapter for Coraza WAF (Node runtime).",
   "license": "Apache-2.0",
   "author": "Juan Pablo Tosso <jptosso@gmail.com>",
@@ -9,7 +9,14 @@
     "url": "https://github.com/jptosso/coraza-node.git",
     "directory": "packages/next"
   },
-  "keywords": ["nextjs", "next", "waf", "coraza", "security", "middleware"],
+  "keywords": [
+    "nextjs",
+    "next",
+    "waf",
+    "coraza",
+    "security",
+    "middleware"
+  ],
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -21,8 +28,14 @@
       "require": "./dist/index.cjs"
     }
   },
-  "files": ["dist", "README.md", "LICENSE"],
-  "engines": { "node": ">=22" },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
