@@ -86,11 +86,16 @@ export function coraza(options: CorazaExpressOptions): RequestHandler {
 
   // Resolve the (possibly deferred) WAF on first use and memoize. Accepting
   // a Promise keeps symmetry with @coraza/next's middleware shape and lets
-  // callers avoid top-level await.
+  // callers avoid top-level await. The .catch(() => {}) is a no-op that
+  // attaches a handler at factory time so a rejected waf promise doesn't
+  // fire `unhandledRejection` before the first request arrives — each
+  // request still awaits the same promise and sees the original error.
+  const wafPromise = Promise.resolve(wafOrPromise)
+  wafPromise.catch(() => {})
   let wafRef: AnyWAF | null = null
   const ensureWAF = async (): Promise<AnyWAF> => {
     if (wafRef) return wafRef
-    wafRef = await wafOrPromise
+    wafRef = await wafPromise
     return wafRef
   }
 

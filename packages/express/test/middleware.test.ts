@@ -14,6 +14,46 @@ function appWith(mw: express.RequestHandler): express.Express {
 }
 
 describe('@coraza/express', () => {
+  it('accepts a Promise<WAF> and resolves it once, memoising', async () => {
+    const { waf } = mockWAF('block')
+    let resolveCount = 0
+    const wafPromise = (async () => {
+      resolveCount++
+      return waf
+    })()
+    const app = appWith(coraza({ waf: wafPromise }))
+    const r1 = await request(app).get('/hi')
+    const r2 = await request(app).get('/hi')
+    expect(r1.status).toBe(200)
+    expect(r2.status).toBe(200)
+    expect(resolveCount).toBe(1)
+  })
+
+  it('fails closed (503) when the WAF promise rejects', async () => {
+    const app = appWith(
+      coraza({
+        waf: (async () => {
+          throw new Error('WAF boot failed')
+        })(),
+      }),
+    )
+    const res = await request(app).get('/hi')
+    expect(res.status).toBe(503)
+  })
+
+  it('falls through to next() when the WAF promise rejects under onWAFError: allow', async () => {
+    const app = appWith(
+      coraza({
+        waf: (async () => {
+          throw new Error('WAF boot failed')
+        })(),
+        onWAFError: 'allow',
+      }),
+    )
+    const res = await request(app).get('/hi')
+    expect(res.status).toBe(200)
+  })
+
   it('passes benign requests through and closes tx after response', async () => {
     const { waf, state } = mockWAF('block')
     const app = appWith(coraza({ waf }))
