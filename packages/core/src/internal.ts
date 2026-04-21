@@ -7,4 +7,4 @@
 
 export { Abi, encodeHeaders, ABI_MAJOR } from './abi.js'
 export { instantiate, type WasmSource } from './wasm.js'
-export { patchInitialMemory } from './wasmPatch.js'
+export { patchInitialMemory, readInitialMemoryPages } from './wasmPatch.js'

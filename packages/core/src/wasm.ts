@@ -5,14 +5,15 @@ import { readFile } from 'node:fs/promises'
 import { WASI } from 'node:wasi'
 import { fileURLToPath } from 'node:url'
 import { Abi, type CorazaExports } from './abi.js'
-import { patchInitialMemory } from './wasmPatch.js'
+import { patchInitialMemory, readInitialMemoryPages } from './wasmPatch.js'
 import { createMinimalWasi, useNativeWasi } from './wasi.js'
 import { createHostRegex } from './hostRegex.js'
 import type { Logger } from './types.js'
 
-// CRS's regex compilation needs ~100 MiB of linear memory up front. TinyGo
-// emits 2 initial pages; we rewrite the module's memory.min to 2100 pages
-// (~137 MiB) before compiling. Matches coraza-proxy-wasm's patchWasm step.
+// CRS's regex compilation needs ~100 MiB of linear memory up front. The
+// Dockerfile bakes memory.min=2100 pages (~137 MiB) at link time via
+// `-extldflags --initial-memory=137625600`. patchInitialMemory is only a
+// fallback for hand-supplied `wasmSource` that wasn't built with that flag.
 const CORAZA_INITIAL_PAGES = 2100
 
 export type WasmSource = ArrayBufferLike | Uint8Array | URL | string
@@ -40,8 +41,7 @@ export async function instantiate(
   logger: Logger,
 ): Promise<Abi> {
   const bytes = await resolveBytes(source)
-  const patched = patchInitialMemory(bytes, CORAZA_INITIAL_PAGES)
-  const module = await WebAssembly.compile(patched as unknown as BufferSource)
+  const module = await WebAssembly.compile(ensureInitialPages(bytes) as unknown as BufferSource)
 
   // Swap between node:wasi (full-featured, native binding) and our own
   // 120-line JS shim based on CORAZA_WASI=minimal. The minimal shim is
@@ -116,4 +116,13 @@ export async function instantiate(
 
   const abi = new Abi(exports)
   return abi
+}
+
+// Fast path when the WASM was built with `-extldflags --initial-memory=...`
+// already bumping memory.min to the required pages. The rewrite is only
+// needed for binaries supplied by the caller that lack the link-time flag.
+function ensureInitialPages(bytes: Uint8Array): Uint8Array {
+  const current = readInitialMemoryPages(bytes)
+  if (current !== null && current >= CORAZA_INITIAL_PAGES) return bytes
+  return patchInitialMemory(bytes, CORAZA_INITIAL_PAGES)
 }
