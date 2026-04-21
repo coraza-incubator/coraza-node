@@ -1,0 +1,19 @@
+{
+  "mode": "pre",
+  "tag": "preview",
+  "initialVersions": {
+    "@coraza/bench": "0.0.0",
+    "@coraza/example-express": "0.0.0",
+    "@coraza/example-fastify": "0.0.0",
+    "@coraza/example-nestjs": "0.0.0",
+    "@coraza/example-next": "0.0.0",
+    "@coraza/example-shared": "0.0.0",
+    "@coraza/core": "0.1.0",
+    "@coraza/coreruleset": "0.1.0",
+    "@coraza/express": "0.1.0",
+    "@coraza/fastify": "0.1.0",
+    "@coraza/nestjs": "0.1.0",
+    "@coraza/next": "0.1.0"
+  },
+  "changesets": []
+}
