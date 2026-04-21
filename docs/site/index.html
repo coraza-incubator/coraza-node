@@ -580,6 +580,26 @@ app.<span class="c-f">register</span>(<span class="c-k">async</span> (api) =&gt;
         <p class="adapter-sub">Middleware for the Node runtime (Edge runtime lacks WASI). App Router and Pages Router.</p>
       </div>
 
+      <div class="callout callout-dim">
+        <div class="callout-badge">Limitation — no response-body inspection</div>
+        <div>
+          Next middleware runs on the request boundary. Route Handlers
+          own the <code>Response</code>, and Next's runtime doesn't hand
+          the response body back to middleware — that's a Next
+          architectural choice, not a WAF limitation. Consequence:
+          the CRS <code>RESPONSE-95*-DATA-LEAKAGES-*</code> families
+          (SQL / Java / PHP / IIS error leaks, webshell output) can't
+          fire on Next. Inbound protection — SQLi, XSS, RCE, LFI, RFI,
+          scanner-detection, protocol-attack, anomaly scoring —
+          works identically to every other adapter.
+          <br><br>
+          If you need response-body inspection, put Express or Fastify
+          in front and run coraza-node there. Documented in
+          <a href="https://github.com/jptosso/coraza-node/blob/main/testing/ftw/ftw-overrides-next.yaml">ftw-overrides-next.yaml</a>
+          as the <code>[next-only]</code> go-ftw skips.
+        </div>
+      </div>
+
       <article class="api-item">
         <header class="api-item-head">
           <h3 class="h3"><code>coraza(options)</code></h3>

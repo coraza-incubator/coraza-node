@@ -76,6 +76,34 @@ pnpm e2e           # end-to-end tests per adapter
 under 50-VU mixed traffic. Detail + tuning knobs:
 **[jptosso.github.io/coraza-node#perf](https://jptosso.github.io/coraza-node#perf)**.
 
+## Adapter caveat — Next.js
+
+Next's middleware runs on the **request boundary only**. Route Handlers
+own the `Response`, and Next's runtime doesn't expose the response body
+back to middleware — that's a Next architectural choice, not a WAF
+limitation. Consequence for coraza-node:
+
+- **Inbound rules fire as usual.** URI, headers, and body inspection
+  (CRS phases 1 + 2) work identically to every other adapter.
+- **Outbound response-body rules don't.** The CRS `RESPONSE-95*-DATA-
+  LEAKAGES-*` families (SQL errors, Java / PHP stack traces, IIS
+  errors, webshell output) have no response body to match against on
+  a Next deployment, and the corresponding go-ftw tests skip on the
+  Next leg by design (see
+  [`testing/ftw/ftw-overrides-next.yaml`](./testing/ftw/ftw-overrides-next.yaml)).
+
+If you need response-body inspection on Next, put an Express or
+Fastify service in front and run coraza-node there. The Next middleware
+adapter is still useful — it catches 90%+ of what CRS flags in
+practice, and the high-value inbound attacks (SQLi, XSS, RCE, LFI,
+RFI) are all phase-1/phase-2.
+
+## CRS compatibility
+
+Measured by [go-ftw](https://github.com/coreruleset/go-ftw) against the
+CRS regression corpus matching `wasm/version.txt`. Results live in
+[`testing/ftw/`](./testing/ftw) and are re-run on every CI push.
+
 ## License
 
 Apache-2.0
