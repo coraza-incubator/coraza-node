@@ -38,3 +38,7 @@ Thumbs.db
 # Native `go build` inside wasm/ drops an ELF binary named after the dir.
 # Never ship the native build artifact — the deliverable is coraza.wasm.
 wasm/wasm
+
+# FTW runner scratch (corpus clone + per-run build artifacts + logs)
+testing/ftw/.coreruleset/
+testing/ftw/build/
