@@ -209,10 +209,11 @@ importers:
         version: 2.1.9(@types/node@22.19.17)
 
   packages/express:
-    devDependencies:
+    dependencies:
       '@coraza/core':
         specifier: workspace:*
         version: link:../core
+    devDependencies:
       '@playwright/test':
         specifier: ^1.48.0
         version: 1.59.1
@@ -246,13 +247,13 @@ importers:
 
   packages/fastify:
     dependencies:
+      '@coraza/core':
+        specifier: workspace:*
+        version: link:../core
       fastify-plugin:
         specifier: ^5.0.1
         version: 5.1.0
     devDependencies:
-      '@coraza/core':
-        specifier: workspace:*
-        version: link:../core
       '@playwright/test':
         specifier: ^1.48.0
         version: 1.59.1
@@ -276,10 +277,11 @@ importers:
         version: 2.1.9(@types/node@22.19.17)
 
   packages/nestjs:
-    devDependencies:
+    dependencies:
       '@coraza/core':
         specifier: workspace:*
         version: link:../core
+    devDependencies:
       '@nestjs/common':
         specifier: ^11.0.0
         version: 11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -318,10 +320,11 @@ importers:
         version: 2.1.9(@types/node@22.19.17)
 
   packages/next:
-    devDependencies:
+    dependencies:
       '@coraza/core':
         specifier: workspace:*
         version: link:../core
+    devDependencies:
       '@playwright/test':
         specifier: ^1.48.0
         version: 1.59.1

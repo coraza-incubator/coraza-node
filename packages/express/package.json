@@ -1,6 +1,6 @@
 {
   "name": "@coraza/express",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "Express middleware for Coraza WAF.",
   "license": "Apache-2.0",
   "author": "Juan Pablo Tosso <jptosso@gmail.com>",
@@ -9,7 +9,13 @@
     "url": "https://github.com/jptosso/coraza-node.git",
     "directory": "packages/express"
   },
-  "keywords": ["express", "waf", "coraza", "security", "middleware"],
+  "keywords": [
+    "express",
+    "waf",
+    "coraza",
+    "security",
+    "middleware"
+  ],
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -21,8 +27,14 @@
       "require": "./dist/index.cjs"
     }
   },
-  "files": ["dist", "README.md", "LICENSE"],
-  "engines": { "node": ">=22" },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
@@ -32,7 +44,6 @@
     "clean": "rm -rf dist coverage .turbo playwright-report test-results"
   },
   "peerDependencies": {
-    "@coraza/core": "workspace:*",
     "express": "^4.19.0 || ^5.0.0"
   },
   "devDependencies": {
@@ -47,5 +58,8 @@
     "tsup": "^8.3.0",
     "typescript": "^5.6.2",
     "vitest": "^2.1.2"
+  },
+  "dependencies": {
+    "@coraza/core": "workspace:*"
   }
 }
