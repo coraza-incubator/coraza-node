@@ -147,18 +147,15 @@ fi
 FTW_BIN="${GOBIN}/go-ftw"
 
 # --- 5. Boot the adapter (unless --skip-boot) ------------------------
-# APP_PID is the pnpm wrapper PID. pnpm spawns `tsx` (or `next start`),
-# which Node executes as a grandchild. A plain `kill $APP_PID` only
-# signals the wrapper and leaves the Node process orphaned (observed in
-# CI: `Terminate orphan process: pid (…) (node)` at job teardown). We
-# track the process-group id and signal the whole group on EXIT so the
-# real server shuts down with the runner.
+# `kill $APP_PID` only signals the pnpm wrapper; pnpm's tsx/node
+# grandchild survives, which is what the previous run logged as
+# `Terminate orphan process: pid (…) (node)`. We keep a descriptor
+# of the child process group so cleanup reaches the whole subtree.
 APP_PID=""
 APP_PGID=""
 cleanup() {
   if [[ -n "${APP_PGID}" ]]; then
     kill -TERM "-${APP_PGID}" 2>/dev/null || true
-    # Give it a moment to flush stdio, then SIGKILL the group.
     sleep 1
     kill -KILL "-${APP_PGID}" 2>/dev/null || true
   elif [[ -n "${APP_PID}" ]] && kill -0 "${APP_PID}" 2>/dev/null; then
@@ -169,10 +166,9 @@ cleanup() {
 trap cleanup EXIT
 
 # CRS compile on first boot takes longer without mimalloc (dropped in
-# 188d79b). Give boot a generous budget — all four adapters reach
-# "ready" well under 30s on GitHub runners; the slack absorbs noisy
-# neighbours on shared hosts. The loop still short-circuits the moment
-# the port responds.
+# 188d79b). Give boot a generous budget — healthy adapters reach
+# "ready" in ≤2s; the slack absorbs noisy neighbours on shared hosts.
+# The loop still short-circuits the moment the port responds.
 BOOT_TIMEOUT="${BOOT_TIMEOUT:-180}"
 
 if [[ "${SKIP_BOOT}" != "1" ]]; then
@@ -180,23 +176,21 @@ if [[ "${SKIP_BOOT}" != "1" ]]; then
     # Next's Node-runtime middleware requires a production build.
     (cd "${REPO_ROOT}/examples/next-app" && pnpm build) >"${BUILD_DIR}/next-build.log" 2>&1
   fi
-  echo "[ftw] Starting ${PKG} on :${PORT} (boot budget ${BOOT_TIMEOUT}s)…"
-  # `setsid` puts the child in its own process group so the cleanup
-  # trap can signal the whole subtree (pnpm → tsx → node) via `-PGID`.
-  # We clear the EXIT trap inside the subshell — a subshell inherits
-  # the parent's traps, and letting cleanup fire on subshell exit would
-  # kill the server we just launched.
   DEV_OR_START="dev"
   [[ "${ADAPTER}" == "next" ]] && DEV_OR_START="start"
-  ( trap - EXIT
-    cd "${REPO_ROOT}"
+  echo "[ftw] Starting ${PKG} on :${PORT} (boot budget ${BOOT_TIMEOUT}s)…"
+  # `setsid` creates a new session so the child gets its own process
+  # group; kill -PGID later hits pnpm + tsx + node together. We install
+  # the child under its own group leader; `$!` in the subshell
+  # captures the setsid process, which becomes PID == PGID.
+  ( cd "${REPO_ROOT}" &&
     setsid env FTW=1 PORT="${PORT}" pnpm -F "${PKG}" "${DEV_OR_START}" \
+      </dev/null \
       > "${BUILD_DIR}/${ADAPTER}.stdout.log" \
       2> "${BUILD_DIR}/${ADAPTER}.stderr.log" &
     echo $! > "${BUILD_DIR}/${ADAPTER}.pid"
   )
   APP_PID="$(cat "${BUILD_DIR}/${ADAPTER}.pid")"
-  # With setsid the child becomes its own session leader; its PID == PGID.
   APP_PGID="${APP_PID}"
 
   # Health-probe loop. We accept 200 (echo-all responded) or 403
@@ -253,6 +247,19 @@ sed -E "s/(^[[:space:]]*port:)[[:space:]]*[0-9]+$/\\1 ${PORT}/" \
 echo "[ftw] Pre-flight: direct HTTP/1.1 smoke on /"
 curl -sS -o - -D - --max-time 5 "http://127.0.0.1:${PORT}/" || true
 echo ""
+
+# Run one test with --debug to capture the exact raw request go-ftw
+# sends on the wire. Limited to a single test (911100-1) to keep the
+# log artifact readable.
+echo "[ftw] Debug replay: single test 911100 with --debug"
+set +e
+"${FTW_BIN}" run \
+  --cloud --debug \
+  --config "${CONFIG_FILE}" \
+  --dir "${CRS_TESTS_DIR}" \
+  --include '^911100' \
+  > "${BUILD_DIR}/ftw-debug-${ADAPTER}.log" 2>&1
+set -e
 
 set +e
 "${FTW_BIN}" run \
