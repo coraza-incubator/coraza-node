@@ -35,3 +35,6 @@ packages/*/playwright-report/
 .idea/
 .vscode/
 Thumbs.db
+# Native `go build` inside wasm/ drops an ELF binary named after the dir.
+# Never ship the native build artifact — the deliverable is coraza.wasm.
+wasm/wasm
