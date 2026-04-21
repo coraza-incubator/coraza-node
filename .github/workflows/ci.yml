@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
@@ -29,7 +29,7 @@ jobs:
       # Ref-scoped by default, so a poisoned PR cache can't leak into main.
       - name: Cache compiled coraza.wasm
         id: wasm-cache
-        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: packages/core/src/wasm/coraza.wasm
           key: wasm-${{ runner.os }}-${{ hashFiles('wasm/**/*.go', 'wasm/go.mod', 'wasm/go.sum', 'wasm/Dockerfile*', 'wasm/Makefile', 'wasm/version.txt') }}
@@ -42,7 +42,7 @@ jobs:
         run: make -C wasm wasm-docker
 
       - name: Upload WASM artifact
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coraza-wasm
           path: packages/core/src/wasm/coraza.wasm
@@ -62,17 +62,17 @@ jobs:
       matrix:
         node: ['20', '22']
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: coraza-wasm
           path: packages/core/src/wasm
       # Version is read from package.json's `packageManager` field.
-      - uses: pnpm/action-setup@0c17529a66aca453f9227af23103ed11469b1e47 # v4.0.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2 # v4.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: ${{ matrix.node }}
           cache: 'pnpm'
@@ -84,7 +84,7 @@ jobs:
       # behaviour; restore-keys are intentionally loose to recover
       # across PRs of the same branch.
       - name: Cache turbo tasks
-        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .turbo
           key: turbo-${{ matrix.node }}-${{ runner.os }}-${{ github.sha }}
@@ -134,7 +134,7 @@ jobs:
 
       - name: Upload coverage
         if: matrix.node == '20'
-        uses: codecov/codecov-action@0f8570b1a125f4937846a11fcfa3bcd548bd8c97 # v4.6.0
+        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4.6.0
         with:
           fail_ci_if_error: false
         env:
@@ -146,24 +146,24 @@ jobs:
     needs: build-wasm
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: coraza-wasm
           path: packages/core/src/wasm
       # Version is read from package.json's `packageManager` field.
-      - uses: pnpm/action-setup@0c17529a66aca453f9227af23103ed11469b1e47 # v4.0.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2 # v4.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '20'
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
 
       - name: Cache turbo tasks
-        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .turbo
           key: turbo-e2e-${{ runner.os }}-${{ github.sha }}
@@ -197,7 +197,7 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
         id: pw-cache
-        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/ms-playwright
           key: pw-${{ runner.os }}-${{ steps.pw.outputs.version }}
@@ -222,7 +222,7 @@ jobs:
         if: steps.base.outputs.scope == 'full'
         run: pnpm -r e2e
 
-      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: playwright-reports
