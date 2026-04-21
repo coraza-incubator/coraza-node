@@ -67,6 +67,27 @@ export async function instantiate(
   const hostRxDisabled = process.env.CORAZA_HOST_RX === 'off'
   const hostRx = createHostRegex()
 
+  // Live-bound Node Buffer wrapping the entire WASM linear memory.
+  // Refreshes lazily when the underlying ArrayBuffer identity changes
+  // (WASM `memory.grow` replaces the buffer, detaching prior views).
+  // `rx_match` is fired thousands of times per request under CRS
+  // paranoia 2; caching the Buffer skips the per-call `new Uint8Array
+  // (memory.buffer)` that `abi.readString` would otherwise rebuild,
+  // and `buf.toString('utf8', start, end)` is a direct C++ shot that
+  // beats the TextDecoder(subarray(...)) path for the small-to-medium
+  // strings CRS sees (URL args, header values, field extractions).
+  let rxBuf: Buffer | null = null
+  let rxBufRef: ArrayBufferLike | null = null
+  function rxMemory(): Buffer {
+    const mem = memRef
+    if (!mem) return Buffer.alloc(0)
+    if (mem.buffer !== rxBufRef) {
+      rxBufRef = mem.buffer
+      rxBuf = Buffer.from(mem.buffer)
+    }
+    return rxBuf!
+  }
+
   const envImports = {
     log(level: number, ptr: number, len: number) {
       // `bytes()` pulled from the abi below once bound; we use a closure trick:
@@ -87,8 +108,13 @@ export async function instantiate(
       return hostRx.compile(pat)
     },
     rx_match(handle: number, inputPtr: number, inputLen: number): number {
-      if (!abi || hostRxDisabled) return 0
-      const input = abi.readString(inputPtr, inputLen)
+      if (!memRef || hostRxDisabled) return 0
+      if (inputLen === 0) return hostRx.match(handle, '') ? 1 : 0
+      // `Buffer#toString('utf8', start, end)` lands directly in C++
+      // without rebuilding a view; combined with the LRU memo inside
+      // hostRx.match, a cascade of paranoia-2 @rx rules against the
+      // same ARGS value collapses to one decode + one regex test.
+      const input = rxMemory().toString('utf8', inputPtr, inputPtr + inputLen)
       return hostRx.match(handle, input) ? 1 : 0
     },
     rx_free(handle: number): void {
