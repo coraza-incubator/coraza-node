@@ -19,6 +19,17 @@
 
 const INLINE_FLAG_RE = /^\(\?([a-z]+)\)/
 
+// Tiny per-handle result memo. CRS paranoia-2 typically fires dozens of
+// `@rx` rules against the same input (e.g. a single ARGS value) in a
+// cascade; the (handle,input) pair repeats often enough that a move-to-
+// front LRU of 8 entries per pattern absorbs the bulk without hashing.
+// We compare by exact `===` on the decoded string — the caller in
+// `wasm.ts` hands us the canonical decoded string for each call, so
+// repeat hits on the same (handle,input) skip `re.test(input)` entirely.
+const MATCH_MEMO_CAPACITY = 8
+
+type MatchMemo = { input: string; matched: boolean }[]
+
 export interface HostRegex {
   compile(pattern: string): number
   match(handle: number, input: string): boolean
@@ -31,6 +42,7 @@ export interface HostRegex {
 
 export function createHostRegex(): HostRegex {
   const patterns = new Map<number, RegExp>()
+  const memos = new Map<number, MatchMemo>()
   let nextHandle = 1
   let rejectedCount = 0
 
@@ -56,14 +68,35 @@ export function createHostRegex(): HostRegex {
   function match(handle: number, input: string): boolean {
     const re = patterns.get(handle)
     if (!re) return false
+    let memo = memos.get(handle)
+    if (memo) {
+      for (let i = 0; i < memo.length; i++) {
+        const e = memo[i]!
+        if (e.input === input) {
+          // Move-to-front so repeatedly-hit entries stay hot.
+          if (i !== 0) {
+            memo.splice(i, 1)
+            memo.unshift(e)
+          }
+          return e.matched
+        }
+      }
+    } else {
+      memo = []
+      memos.set(handle, memo)
+    }
     // Avoid stateful match bugs: `g`/`y` flags keep lastIndex. We never
     // emit those, but guard anyway.
     re.lastIndex = 0
-    return re.test(input)
+    const matched = re.test(input)
+    memo.unshift({ input, matched })
+    if (memo.length > MATCH_MEMO_CAPACITY) memo.length = MATCH_MEMO_CAPACITY
+    return matched
   }
 
   function free(handle: number): void {
     patterns.delete(handle)
+    memos.delete(handle)
   }
 
   return {
