@@ -23,6 +23,8 @@
 #                    wasm/version.txt's coreruleset= line.
 #   SKIP_BOOT=1      don't boot the adapter — assume something else has it
 #                    already bound on PORT (useful for debugging).
+#   BOOT_TIMEOUT     seconds to wait for the adapter's port to answer
+#                    (default 180).
 
 set -euo pipefail
 

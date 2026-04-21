@@ -77,7 +77,11 @@ if (ftw) {
   )
 }
 
+process.stderr.write(`[${new Date().toISOString()}] fastify calling listen()\n`)
 await app.listen({ port, host: '0.0.0.0' })
+process.stderr.write(
+  `[${new Date().toISOString()}] fastify listen resolved; address=${JSON.stringify(app.server.address())}\n`,
+)
 
 // Under FTW mode the CRS corpus sends CONNECT requests (SSL tunneling
 // tests). Node's http.Server closes the socket when no `connect`
