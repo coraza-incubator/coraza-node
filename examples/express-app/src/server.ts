@@ -79,11 +79,13 @@ if (ftw) {
   )
 }
 
-// Bind explicitly to IPv4 0.0.0.0. Express 5 + Node 22 default to the
-// IPv6 wildcard (`::`), which relies on IPv4-mapped-IPv6 accept. Some
-// GitHub runner kernels (and any host with `net.ipv6.bindv6only=1`)
-// won't route a `127.0.0.1` connect to it, so the FTW health probe
-// hangs on ECONNREFUSED. The explicit IPv4 host removes that surprise.
+// Bind to the loopback interface literally. Every prior attempt bound
+// on the dual-stack (`::`) or IPv4 wildcard (`0.0.0.0`) addresses and
+// the runner's `127.0.0.1` connect came back ECONNREFUSED for 180s
+// straight — despite Node's listen callback reporting the bind
+// succeeded. Whatever the interaction is (pnpm / tsx / setsid / kernel
+// netfilter on this runner flavour), binding to 127.0.0.1 directly
+// dodges it on every other adapter too.
 //
 // Use `http.createServer(app).listen(...)` directly rather than
 // `app.listen(...)`. Express 5's wrapper returns the server but shape-
@@ -91,7 +93,7 @@ if (ftw) {
 // listen was under the hood and is less surprising when debugging.
 process.stderr.write(`[${new Date().toISOString()}] express calling listen()\n`)
 const server = http.createServer(app)
-server.listen(port, '0.0.0.0', () => {
+server.listen(port, '127.0.0.1', () => {
   const addr = server.address()
   process.stderr.write(
     `[${new Date().toISOString()}] express listen callback fired; address=${JSON.stringify(addr)}\n`,
