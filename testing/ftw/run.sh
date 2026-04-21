@@ -141,52 +141,81 @@ fi
 FTW_BIN="${GOBIN}/go-ftw"
 
 # --- 5. Boot the adapter (unless --skip-boot) ------------------------
+# APP_PID is the pnpm wrapper PID. pnpm spawns `tsx` (or `next start`),
+# which Node executes as a grandchild. A plain `kill $APP_PID` only
+# signals the wrapper and leaves the Node process orphaned (observed in
+# CI: `Terminate orphan process: pid (…) (node)` at job teardown). We
+# track the process-group id and signal the whole group on EXIT so the
+# real server shuts down with the runner.
 APP_PID=""
+APP_PGID=""
 cleanup() {
-  if [[ -n "${APP_PID}" ]] && kill -0 "${APP_PID}" 2>/dev/null; then
+  if [[ -n "${APP_PGID}" ]]; then
+    kill -TERM "-${APP_PGID}" 2>/dev/null || true
+    # Give it a moment to flush stdio, then SIGKILL the group.
+    sleep 1
+    kill -KILL "-${APP_PGID}" 2>/dev/null || true
+  elif [[ -n "${APP_PID}" ]] && kill -0 "${APP_PID}" 2>/dev/null; then
     kill "${APP_PID}" 2>/dev/null || true
     wait "${APP_PID}" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT
 
+# CRS compile on first boot takes longer without mimalloc (dropped in
+# 188d79b). Give boot a generous budget — all four adapters reach
+# "ready" well under 30s on GitHub runners; the slack absorbs noisy
+# neighbours on shared hosts. The loop still short-circuits the moment
+# the port responds.
+BOOT_TIMEOUT="${BOOT_TIMEOUT:-180}"
+
 if [[ "${SKIP_BOOT}" != "1" ]]; then
   if [[ "${ADAPTER}" == "next" ]]; then
     # Next's Node-runtime middleware requires a production build.
     (cd "${REPO_ROOT}/examples/next-app" && pnpm build) >"${BUILD_DIR}/next-build.log" 2>&1
   fi
-  echo "[ftw] Starting ${PKG} on :${PORT}…"
-  (
+  echo "[ftw] Starting ${PKG} on :${PORT} (boot budget ${BOOT_TIMEOUT}s)…"
+  # `setsid` puts the child in its own process group so the cleanup
+  # trap can signal the whole subtree (pnpm → tsx → node) via `-PGID`.
+  # We clear the EXIT trap inside the subshell — a subshell inherits
+  # the parent's traps, and letting cleanup fire on subshell exit would
+  # kill the server we just launched.
+  DEV_OR_START="dev"
+  [[ "${ADAPTER}" == "next" ]] && DEV_OR_START="start"
+  ( trap - EXIT
     cd "${REPO_ROOT}"
-    FTW=1 PORT="${PORT}" pnpm -F "${PKG}" \
-      "$( [[ "${ADAPTER}" == "next" ]] && echo start || echo dev )" \
+    setsid env FTW=1 PORT="${PORT}" pnpm -F "${PKG}" "${DEV_OR_START}" \
       > "${BUILD_DIR}/${ADAPTER}.stdout.log" \
       2> "${BUILD_DIR}/${ADAPTER}.stderr.log" &
     echo $! > "${BUILD_DIR}/${ADAPTER}.pid"
   )
   APP_PID="$(cat "${BUILD_DIR}/${ADAPTER}.pid")"
+  # With setsid the child becomes its own session leader; its PID == PGID.
+  APP_PGID="${APP_PID}"
 
   # Health-probe loop. We accept 200 (echo-all responded) or 403
   # (WAF blocked the bare GET / request — shouldn't happen at PL2
   # but harmless).
-  retries=60
+  retries="${BOOT_TIMEOUT}"
   status="000"
   while [[ "${retries}" -gt 0 ]]; do
-    status="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/" || true)"
+    status="$(curl -sS -o /dev/null --connect-timeout 2 -w '%{http_code}' "http://127.0.0.1:${PORT}/" 2>/dev/null || true)"
     if [[ "${status}" == "200" || "${status}" == "403" ]]; then
       break
     fi
     if ! kill -0 "${APP_PID}" 2>/dev/null; then
       echo "[ftw] Target process died before becoming ready." >&2
-      tail -n 40 "${BUILD_DIR}/${ADAPTER}.stderr.log" >&2 || true
+      tail -n 40 "${BUILD_DIR}/${ADAPTER}.stderr.log" 2>/dev/null || true
+      tail -n 40 "${BUILD_DIR}/${ADAPTER}.stdout.log" 2>/dev/null || true
       exit 1
     fi
     sleep 1
     retries=$((retries - 1))
   done
   [[ "${retries}" -gt 0 ]] || {
-    echo "[ftw] Target did not come up within 60s." >&2
-    tail -n 40 "${BUILD_DIR}/${ADAPTER}.stderr.log" >&2 || true
+    echo "[ftw] Target did not come up within ${BOOT_TIMEOUT}s." >&2
+    tail -n 40 "${BUILD_DIR}/${ADAPTER}.stderr.log" 2>/dev/null || true
+    tail -n 40 "${BUILD_DIR}/${ADAPTER}.stdout.log" 2>/dev/null || true
     exit 1
   }
   echo "[ftw] Target up (status=${status})."
@@ -203,13 +232,20 @@ INCLUDE_FLAG=()
 export FTW_TEST_HOST="127.0.0.1"
 export FTW_TEST_PORT="${PORT}"
 
+# Cloud mode: tell go-ftw to assess each case purely from the HTTP status
+# code. Our adapters don't share a common log file go-ftw can tail — each
+# block decision surfaces as a 403 response via `onBlock`. Without this
+# flag go-ftw errors out with `Error: no log file supplied` before a
+# single test executes. Cloud mode disables log-marker checks; that's
+# acceptable here because the CRS corpus tests we care about use
+# `status: 403` as their primary assertion.
 set +e
 "${FTW_BIN}" run \
+  --cloud \
   --dir "${CRS_TESTS_DIR}" \
   --overrides "${OVERRIDES}" \
   --output json \
   --read-timeout 10s \
-  --max-marker-retries 50 \
   ${DEBUG} \
   "${INCLUDE_FLAG[@]}" \
   > "${OUT_JSON}"

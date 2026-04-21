@@ -105,10 +105,12 @@ class FtwController {
 
 const rules = recommended(ftw ? { paranoia: 2 } : {})
 
+// NestJS's CorazaGuard is a CanActivate — it runs pre-handler only. Response
+// inspection isn't supported on this adapter, so the example tracks that:
+// no `inspectResponse` option exists on CorazaNestOptions, and FTW runs
+// happily against phase 1/2 rules alone.
 @Module({
-  imports: wafDisabled
-    ? []
-    : [CorazaModule.forRoot({ rules, mode, inspectResponse: ftw })],
+  imports: wafDisabled ? [] : [CorazaModule.forRoot({ rules, mode })],
   controllers: [ftw ? FtwController : AppController],
 })
 class AppModule {}
