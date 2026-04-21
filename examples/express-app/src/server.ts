@@ -98,6 +98,28 @@ server.listen(port, '127.0.0.1', () => {
   process.stderr.write(
     `[${new Date().toISOString()}] express listen callback fired; address=${JSON.stringify(addr)}\n`,
   )
+  // Self-check: connect from the SAME process's event loop to confirm
+  // the kernel really is accepting on the port. If Node reports the
+  // server bound but a same-host in-process connect fails, the
+  // problem is downstream of Node — the bind did happen, something
+  // else intercepts the connect. If the in-process connect succeeds
+  // but the bash `curl` outside can't, the problem is outside Node
+  // (runner namespace, firewall, pnpm/setsid plumbing).
+  const req = http.request(
+    { host: '127.0.0.1', port, path: '/', method: 'GET', timeout: 2000 },
+    (res) => {
+      process.stderr.write(
+        `[${new Date().toISOString()}] express self-check HTTP ${res.statusCode}\n`,
+      )
+      res.resume()
+    },
+  )
+  req.on('error', (err) => {
+    process.stderr.write(
+      `[${new Date().toISOString()}] express self-check ERROR: ${(err as Error).message}\n`,
+    )
+  })
+  req.end()
 })
 server.on('error', (err: unknown) => {
   process.stderr.write(`express listen error: ${(err as Error).message}\n`)
