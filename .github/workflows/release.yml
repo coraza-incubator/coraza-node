@@ -51,10 +51,13 @@ jobs:
 
       # Pre-publish verification. If any step fails, the changesets-action
       # below never runs, so a broken main can't reach npm.
-      - name: Typecheck
-        run: pnpm -r typecheck
+      # Build first: adapters' typecheck and tests import `@coraza/core`,
+      # which resolves to `dist/index.d.ts` / `dist/index.js` that only
+      # exist after tsup has run.
       - name: Build
         run: pnpm -r build
+      - name: Typecheck
+        run: pnpm -r typecheck
       - name: Unit tests
         run: pnpm -r test
 
