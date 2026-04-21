@@ -30,7 +30,7 @@
   },
   "files": ["dist", "src/wasm/coraza.wasm", "README.md", "LICENSE"],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "build": "tsup",

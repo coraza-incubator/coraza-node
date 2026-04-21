@@ -20,21 +20,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
       # Cache the finished wasm binary keyed on everything that goes into
-      # building it (Go sources, Dockerfile, Makefile, go.mod/go.sum).
-      # Ref-scoped by default, so a poisoned PR cache can't leak into main.
+      # building it. Ref-scoped by default, so a poisoned PR cache can't
+      # leak into main. No restore-keys: a stale wasm would invisibly
+      # pass unit tests but miss behaviour changes from the Go side.
       - name: Cache compiled coraza.wasm
         id: wasm-cache
-        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: packages/core/src/wasm/coraza.wasm
           key: wasm-${{ runner.os }}-${{ hashFiles('wasm/**/*.go', 'wasm/go.mod', 'wasm/go.sum', 'wasm/Dockerfile*', 'wasm/Makefile', 'wasm/version.txt') }}
-          # Don't restore a near-match — a stale wasm would invisibly pass
-          # unit tests but miss behaviour changes from the Go side.
           restore-keys: ''
 
       - name: Build with reproducible Docker image
@@ -42,191 +41,183 @@ jobs:
         run: make -C wasm wasm-docker
 
       - name: Upload WASM artifact
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coraza-wasm
           path: packages/core/src/wasm/coraza.wasm
           retention-days: 7
 
-  # Selective testing: Turbo only runs tasks for packages whose inputs
-  # changed since $BASE plus the packages that depend on them. So a
-  # change in @coraza/core re-tests every adapter (they depend on it),
-  # but a change in @coraza/express only re-tests express.
+  # One check row per package × Node version. GitHub renders each matrix
+  # leg as its own status line, so a regression in `@coraza/express` on
+  # Node 24 is visible at a glance without needing to drill in.
   test:
-    name: Test (Node ${{ matrix.node }})
+    name: Test · ${{ matrix.package }} · Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    needs: build-wasm
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+        package:
+          - '@coraza/core'
+          - '@coraza/coreruleset'
+          - '@coraza/express'
+          - '@coraza/fastify'
+          - '@coraza/next'
+          - '@coraza/nestjs'
+          - '@coraza/example-shared'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: coraza-wasm
+          path: packages/core/src/wasm
+      # Version is read from package.json's `packageManager` field.
+      - uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2 # v4.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+
+      - name: Cache turbo tasks
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .turbo
+          key: turbo-${{ matrix.node }}-${{ matrix.package }}-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ matrix.node }}-${{ matrix.package }}-${{ runner.os }}-
+
+      # Build the package + its dependencies up front. Turbo dedupes
+      # across packages (topology-aware) so the typical leg only pays
+      # for core + the one package it's about to test.
+      - name: Build
+        run: pnpm turbo run build --filter=${{ matrix.package }}...
+
+      - name: Typecheck
+        run: pnpm turbo run typecheck --filter=${{ matrix.package }}
+      - name: Unit tests + coverage
+        run: pnpm turbo run test:coverage --filter=${{ matrix.package }}
+
+      - name: Upload coverage
+        if: matrix.node == '22'
+        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4.6.0
+        with:
+          fail_ci_if_error: false
+          flags: ${{ matrix.package }}
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # Example apps get a separate, lighter job: typecheck + build (no
+  # dedicated unit tests — the adapter E2Es already boot each example
+  # via Playwright's webServer).
+  examples:
+    name: Example · ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    needs: build-wasm
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - '@coraza/example-express'
+          - '@coraza/example-fastify'
+          - '@coraza/example-nestjs'
+          - '@coraza/example-next'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: coraza-wasm
+          path: packages/core/src/wasm
+      - uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2 # v4.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build dependencies
+        run: pnpm turbo run build --filter=${{ matrix.package }}...
+
+      - name: Typecheck
+        run: pnpm turbo run typecheck --filter=${{ matrix.package }}
+
+      # Only example-next has a real `build` script (next build). The
+      # other three examples are run via `tsx src/server.ts` at dev time
+      # and don't emit artifacts.
+      - name: Build (next only)
+        if: matrix.package == '@coraza/example-next'
+        run: pnpm -F ${{ matrix.package }} build
+
+  e2e:
+    name: E2E · ${{ matrix.adapter }}
     runs-on: ubuntu-latest
     needs: build-wasm
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        node: ['20', '22']
+        adapter: [express, fastify, next, nestjs]
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: coraza-wasm
           path: packages/core/src/wasm
-      # Version is read from package.json's `packageManager` field.
-      - uses: pnpm/action-setup@0c17529a66aca453f9227af23103ed11469b1e47 # v4.0.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2 # v4.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: ${{ matrix.node }}
-          cache: 'pnpm'
-      - run: pnpm install --frozen-lockfile
-
-      # Turbo task cache — speeds up reruns where inputs haven't changed
-      # (e.g. a PR that only touches docs re-pushes unchanged source).
-      # Keyed on lockfile + source so a mutated cache can't change
-      # behaviour; restore-keys are intentionally loose to recover
-      # across PRs of the same branch.
-      - name: Cache turbo tasks
-        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
-        with:
-          path: .turbo
-          key: turbo-${{ matrix.node }}-${{ runner.os }}-${{ github.sha }}
-          restore-keys: |
-            turbo-${{ matrix.node }}-${{ runner.os }}-
-
-      - name: Resolve change base
-        id: base
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base="${{ github.event.pull_request.base.sha }}"
-          else
-            # On push: diff against the previous tip. Zero-SHA on a brand-new
-            # branch — in that case we fall back to a full run.
-            base="${{ github.event.before }}"
-          fi
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
-            echo "scope=full" >> "$GITHUB_OUTPUT"
-            echo "No base SHA — running the full matrix."
-          else
-            echo "scope=affected" >> "$GITHUB_OUTPUT"
-            echo "base=$base" >> "$GITHUB_OUTPUT"
-            echo "Base SHA: $base"
-          fi
-
-      # Always build everything publishable first. Turbo caches each
-      # package's dist/ by input hash, so packages with no changes are
-      # effectively free. This guarantees downstream consumers
-      # (examples/*, adapter tests) see populated dist/ dirs.
-      - name: Build all publishable packages
-        run: pnpm turbo run build --filter=!@coraza/example-*
-
-      - name: Typecheck (affected)
-        if: steps.base.outputs.scope == 'affected'
-        run: pnpm turbo run typecheck --filter="...[${{ steps.base.outputs.base }}]" --filter=!@coraza/example-*
-      - name: Unit tests + coverage (affected)
-        if: steps.base.outputs.scope == 'affected'
-        run: pnpm turbo run test:coverage --filter="...[${{ steps.base.outputs.base }}]" --filter=!@coraza/example-*
-
-      - name: Typecheck (full)
-        if: steps.base.outputs.scope == 'full'
-        run: pnpm -r typecheck
-      - name: Unit tests + coverage (full)
-        if: steps.base.outputs.scope == 'full'
-        run: pnpm -r test:coverage
-
-      - name: Upload coverage
-        if: matrix.node == '20'
-        uses: codecov/codecov-action@0f8570b1a125f4937846a11fcfa3bcd548bd8c97 # v4.6.0
-        with:
-          fail_ci_if_error: false
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
-  e2e:
-    name: E2E (affected adapters)
-    runs-on: ubuntu-latest
-    needs: build-wasm
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
-        with:
-          name: coraza-wasm
-          path: packages/core/src/wasm
-      # Version is read from package.json's `packageManager` field.
-      - uses: pnpm/action-setup@0c17529a66aca453f9227af23103ed11469b1e47 # v4.0.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
 
       - name: Cache turbo tasks
-        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .turbo
-          key: turbo-e2e-${{ runner.os }}-${{ github.sha }}
+          key: turbo-e2e-${{ matrix.adapter }}-${{ runner.os }}-${{ github.sha }}
           restore-keys: |
-            turbo-e2e-${{ runner.os }}-
-
-      - name: Resolve change base
-        id: base
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base="${{ github.event.pull_request.base.sha }}"
-          else
-            base="${{ github.event.before }}"
-          fi
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
-            echo "scope=full" >> "$GITHUB_OUTPUT"
-          else
-            echo "scope=affected" >> "$GITHUB_OUTPUT"
-            echo "base=$base" >> "$GITHUB_OUTPUT"
-          fi
+            turbo-e2e-${{ matrix.adapter }}-${{ runner.os }}-
 
       # Playwright browsers are huge (~200 MB) and pinned to the
-      # @playwright/test version. Cache keyed on the lockfile +
-      # explicit browser dir; on a cache miss the install step
-      # re-downloads exactly that version.
+      # @playwright/test version. Cache keyed on that version;
+      # on a cache miss the install step re-downloads.
       - name: Resolve Playwright version
         id: pw
-        # @playwright/test is a dev-dep of each adapter, not the root,
-        # so resolve it from an adapter's workspace.
         run: |
-          v=$(pnpm -F @coraza/express exec node -p "require('@playwright/test/package.json').version")
+          v=$(pnpm -F @coraza/${{ matrix.adapter }} exec node -p "require('@playwright/test/package.json').version")
           echo "version=$v" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
         id: pw-cache
-        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/ms-playwright
           key: pw-${{ runner.os }}-${{ steps.pw.outputs.version }}
       - name: Install Playwright browsers
         if: steps.pw-cache.outputs.cache-hit != 'true'
-        run: pnpm -r --filter "@coraza/{express,fastify,next,nestjs}" exec playwright install --with-deps chromium
+        run: pnpm -F @coraza/${{ matrix.adapter }} exec playwright install --with-deps chromium
       - name: Install Playwright system deps only (cache hit)
         if: steps.pw-cache.outputs.cache-hit == 'true'
-        run: pnpm -F @coraza/express exec playwright install-deps chromium
+        run: pnpm -F @coraza/${{ matrix.adapter }} exec playwright install-deps chromium
 
-      # Same pattern as the test job: always build publishable
-      # packages first so dist/ is populated; then the E2E run only
-      # hits adapters whose source (or transitive deps) changed.
-      - name: Build all publishable packages
-        run: pnpm turbo run build --filter=!@coraza/example-*
+      - name: Build the adapter + its deps
+        run: pnpm turbo run build --filter=@coraza/${{ matrix.adapter }}...
+      - name: E2E
+        run: pnpm -F @coraza/${{ matrix.adapter }} e2e
 
-      - name: E2E (affected)
-        if: steps.base.outputs.scope == 'affected'
-        run: pnpm turbo run e2e --filter="...[${{ steps.base.outputs.base }}]" --filter=!@coraza/example-*
-
-      - name: E2E (full)
-        if: steps.base.outputs.scope == 'full'
-        run: pnpm -r e2e
-
-      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: playwright-reports
-          path: packages/*/playwright-report
+          name: playwright-report-${{ matrix.adapter }}
+          path: packages/${{ matrix.adapter }}/playwright-report
           retention-days: 14

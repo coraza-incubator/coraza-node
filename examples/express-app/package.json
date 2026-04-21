@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx src/server.ts"
+    "dev": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@coraza/core": "workspace:*",
