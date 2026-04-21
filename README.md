@@ -1,5 +1,11 @@
 # coraza-node
 
+> **Experimental.** This is an independent community project, not an
+> official Coraza or OWASP release. The Coraza engine itself is official;
+> this Node.js packaging / adapter layer around it is not. API surface
+> may change before 1.0. Author: **Juan Pablo Tosso**
+> ([pablo@owasp.org](mailto:pablo@owasp.org)).
+
 OWASP Coraza WAF for Node.js — ships as an npm package, no sidecar required.
 
 The WAF engine ([OWASP Coraza](https://github.com/corazawaf/coraza)) is compiled
