@@ -1,5 +1,42 @@
 # @coraza/core
 
+## 0.1.0-preview.1
+
+### Patch Changes
+
+- 7e1232b: `WAFPool`: ship the worker file as `pool-worker.mjs` so Node unambiguously
+  loads it as ESM regardless of what the surrounding bundler does with
+  `package.json` markers. Fixes a silent hang under Next.js 16 Turbopack
+  dev mode where the emitted worker was `.js` with ESM `import` statements
+  but no sibling `"type":"module"` — Node refused to load it, the worker
+  never signalled ready, and `createWAFPool` awaited forever
+  (github.com/coraza-incubator/coraza-node#8).
+
+  Also adds a `readyTimeoutMs` option to `createWAFPool` (default `10000`
+  ms): if every worker has not acknowledged the init handshake within the
+  window, the promise rejects with an actionable error that names the
+  likely bundler / module-format cause. No more hang-forever.
+
+  Public shape: `pool-worker.js` is no longer emitted — adapter callers
+  never reference it directly, but any external tooling that expected
+  `@coraza/core/dist/pool-worker.js` should switch to `pool-worker.mjs`.
+
+- 8d1955d: Document the two CRS 4.24.0 `920640` test cases (`920640-4`, `920640-5`) as
+  FTW overrides under a new `[upstream-crs]` tag. Both tests are flagged by the
+  CRS corpus itself as "doesn't work with HTTP/1.1" (see the test YAML's own
+  description) and can only pass under HTTP/2, where go-ftw can send a
+  data-frame-length-encoded body independent of `Content-Length`. Investigation
+  of the Coraza `v3.3.3 → v3.7.0` diff confirmed the engine behaves identically
+  on these scenarios; the rule was newly introduced in CRS 4.24.0 so there was
+  no previous baseline to "regress" against. Verified with a standalone Go
+  reproducer running the full CRS stack on both engine versions.
+
+  Also bumps the pinned upstream versions on this branch to match `main`:
+  `coraza=3.7.0`, `coreruleset=4.25.0`.
+
+- 8297b66: Bumped upstream: coraza=3.7.0,
+  coreruleset=4.25.0. Rebuilt WASM.
+
 ## 0.1.0-preview.0
 
 ### Minor Changes

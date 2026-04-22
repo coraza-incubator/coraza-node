@@ -1,5 +1,14 @@
 # @coraza/nestjs
 
+## 0.1.0-preview.1
+
+### Patch Changes
+
+- Updated dependencies [7e1232b]
+- Updated dependencies [8d1955d]
+- Updated dependencies [8297b66]
+  - @coraza/core@0.1.0-preview.1
+
 ## 0.1.0-preview.0
 
 ### Minor Changes
