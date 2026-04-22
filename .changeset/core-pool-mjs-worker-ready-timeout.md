@@ -1,5 +1,5 @@
 ---
-'@coraza/core': minor
+'@coraza/core': patch
 ---
 
 `WAFPool`: ship the worker file as `pool-worker.mjs` so Node unambiguously
