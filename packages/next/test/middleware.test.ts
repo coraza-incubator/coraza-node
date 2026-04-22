@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { NextRequest } from 'next/server'
-import { coraza, defaultBlock } from '../src/index.js'
+import { coraza, createCorazaRunner, defaultBlock } from '../src/index.js'
 import { mockWAF } from './helpers.js'
 
 function makeReq(url: string, init: RequestInit = {}): NextRequest {
@@ -220,5 +220,71 @@ describe('@coraza/next', () => {
     const mw = coraza({ waf })
     const res = await mw(makeReq('https://example.com/', { method: 'POST' }))
     expect(res.headers.get('x-middleware-next')).toBe('1')
+  })
+})
+
+// Compose-with-existing-proxy contract. The runner exposes a structured
+// decision so downstream `proxy.ts` code doesn't need to sniff
+// `x-middleware-next` on the response body — that sniff is internal
+// territory, see github.com/jptosso/coraza-node#8.
+describe('@coraza/next createCorazaRunner', () => {
+  it('returns { allow: true } on benign requests', async () => {
+    const { waf } = mockWAF('block')
+    const run = createCorazaRunner({ waf })
+    const decision = await run(makeReq('https://example.com/hi'))
+    expect(decision).toEqual({ allow: true })
+  })
+
+  it('returns { blocked } with the onBlock Response on an interruption', async () => {
+    const { waf } = mockWAF('block', {
+      onHeaders: () => ({ ruleId: 942100, action: 'deny', status: 403, data: 'SQLi' }),
+    })
+    const run = createCorazaRunner({ waf })
+    const decision = await run(makeReq('https://example.com/x?id=1%27OR%271'))
+    expect('blocked' in decision).toBe(true)
+    if (!('blocked' in decision)) return
+    expect(decision.blocked.status).toBe(403)
+    expect(await decision.blocked.text()).toContain('942100')
+  })
+
+  it('bypasses static paths (returns allow without a WAF call)', async () => {
+    const { waf, state } = mockWAF('block', {
+      onHeaders: () => ({ ruleId: 1, action: 'deny', status: 403, data: 'x' }),
+    })
+    const run = createCorazaRunner({ waf })
+    const decision = await run(makeReq('https://example.com/img/logo.png'))
+    expect(decision).toEqual({ allow: true })
+    expect(state.nextTx).toBe(0)
+  })
+
+  it('composes cleanly with existing proxy logic', async () => {
+    // Shape of the compose pattern we want to document in the README:
+    // run Coraza first, bail on block, otherwise fall through to auth.
+    // Interruption is URL-keyed so the same mock services both the
+    // "blocked" and "allowed" legs of the flow.
+    const { waf } = mockWAF('block', {
+      onHeaders: (tx) =>
+        tx.uri?.uri?.includes('OR')
+          ? { ruleId: 942100, action: 'deny', status: 403, data: 'SQLi' }
+          : undefined,
+    })
+    const run = createCorazaRunner({ waf })
+    async function proxy(req: NextRequest): Promise<Response> {
+      const decision = await run(req)
+      if ('blocked' in decision) return decision.blocked
+      // Pretend-auth: deny when no cookie is present.
+      if (!req.headers.get('cookie')) {
+        return new Response('Unauthorized', { status: 401 })
+      }
+      return new Response(null, { headers: { 'x-middleware-next': '1' } })
+    }
+    const blocked = await proxy(makeReq('https://example.com/x?id=1%27OR%271'))
+    expect(blocked.status).toBe(403)
+    const unauth = await proxy(makeReq('https://example.com/hi'))
+    expect(unauth.status).toBe(401)
+    const allowed = await proxy(
+      makeReq('https://example.com/hi', { headers: { cookie: 'session=abc' } }),
+    )
+    expect(allowed.headers.get('x-middleware-next')).toBe('1')
   })
 })

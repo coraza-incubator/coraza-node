@@ -78,10 +78,16 @@ under 50-VU mixed traffic. Detail + tuning knobs:
 
 ## Adapter caveat — Next.js
 
-Next's middleware runs on the **request boundary only**. Route Handlers
-own the `Response`, and Next's runtime doesn't expose the response body
-back to middleware — that's a Next architectural choice, not a WAF
-limitation. Consequence for coraza-node:
+Supported on Next.js 14, 15, and 16. See
+[`packages/next/README.md`](./packages/next/README.md) for the
+copy-pasteable `proxy.ts` (Next 16) / `middleware.ts` (Next 14/15)
+snippet, the `src/` layout note, and how to compose with an existing
+`proxy.ts`.
+
+Next's middleware / proxy runs on the **request boundary only**. Route
+Handlers own the `Response`, and Next's runtime doesn't expose the
+response body back to middleware — that's a Next architectural choice,
+not a WAF limitation. Consequence for coraza-node:
 
 - **Inbound rules fire as usual.** URI, headers, and body inspection
   (CRS phases 1 + 2) work identically to every other adapter.
