@@ -42,9 +42,37 @@ export interface WAFPoolOptions extends WAFConfig {
    * `Infinity` to disable rotation.
    */
   maxRequestsPerWorker?: number
+  /**
+   * Maximum time (ms) to wait for every worker to come online and ack the
+   * `init` handshake before `createWAFPool` rejects. Default: `10000`
+   * (10 s). Pass `0` or `Infinity` to disable (legacy hang-forever
+   * behaviour — not recommended).
+   *
+   * Why this exists: some bundlers (e.g. Turbopack in Next.js 16 dev
+   * mode) emit the worker file with ESM `import` syntax but without a
+   * sibling `"type": "module"` marker and without a `.mjs` extension, so
+   * Node refuses to load it. The worker never emits `online`, `error`,
+   * or `exit`, and `createWAFPool` would otherwise await forever. This
+   * timeout converts that silent hang into a loud, actionable error
+   * that names the likely culprit.
+   */
+  readyTimeoutMs?: number
 }
 
 const DEFAULT_MAX_REQUESTS_PER_WORKER = 50_000
+
+/**
+ * How long to wait for every worker to come `online` and ack its `init`
+ * message before we reject `createWAFPool` with an actionable error. The
+ * pool normally boots in ~100-300 ms on a modern box; 10 s is well past
+ * that for any realistic machine while still tripping fast enough that
+ * an adapter's own timeout (e.g. Express' default 2-minute socket
+ * timeout) doesn't hide the failure. Exposed as an option for CI / slow
+ * containers that legitimately need longer (or `0` / `Infinity` to
+ * disable — never recommended; a hung pool is indistinguishable from a
+ * bundler that emitted the worker with the wrong module format).
+ */
+const DEFAULT_POOL_READY_TIMEOUT_MS = 10_000
 
 interface Pending {
   resolve(value: unknown): void
@@ -107,7 +135,7 @@ export class WAFPool {
   }
 
   static async create(opts: WAFPoolOptions): Promise<WAFPool> {
-    const { size: requested, maxRequestsPerWorker, ...config } = opts
+    const { size: requested, maxRequestsPerWorker, readyTimeoutMs, ...config } = opts
     const size = Math.max(1, requested ?? defaultSize())
     const logger = config.logger ?? consoleLogger
     const mode = config.mode ?? 'detect'
@@ -117,6 +145,12 @@ export class WAFPool {
         : maxRequestsPerWorker === 0 || !Number.isFinite(maxRequestsPerWorker)
           ? Infinity
           : Math.max(1, Math.floor(maxRequestsPerWorker))
+    const readyTimeout =
+      readyTimeoutMs === undefined
+        ? DEFAULT_POOL_READY_TIMEOUT_MS
+        : readyTimeoutMs === 0 || !Number.isFinite(readyTimeoutMs)
+          ? Infinity
+          : Math.max(1, Math.floor(readyTimeoutMs))
 
     // Compile the WASM module once on the main thread and share it with
     // every worker via workerData (structured clone preserves the compiled
@@ -142,11 +176,47 @@ export class WAFPool {
     for (let i = 0; i < size; i++) slots.push(spawnSlot(logger, wasmModule))
 
     // Init every worker in parallel, reject fast if any fails.
-    await Promise.all(
-      slots.map((slot) =>
-        slot.ready.then(() => callSlot<void>(slot, { type: 'init', config: workerConfig })),
-      ),
-    )
+    //
+    // Wrapped in a hard deadline: if a bundler has emitted the worker file
+    // with ESM syntax but without an ESM marker (no `.mjs` extension and
+    // no sibling `"type": "module"`), Node fails to load it silently —
+    // the worker never emits `online`, `error`, or `exit`, and
+    // `slot.ready` hangs forever. Turbopack in Next.js 16 dev mode is the
+    // canonical repro; see github.com/jptosso/coraza-node#8. Convert the
+    // hang into a loud error that tells the operator what to check.
+    try {
+      await withTimeout(
+        Promise.all(
+          slots.map((slot) =>
+            slot.ready.then(() => callSlot<void>(slot, { type: 'init', config: workerConfig })),
+          ),
+        ),
+        readyTimeout,
+        () =>
+          new Error(
+            `coraza: pool workers failed to initialize within ${readyTimeout}ms. ` +
+              `This usually means the bundler emitted the pool worker without an ESM marker ` +
+              `(Node needs either a .mjs extension or a sibling package.json with ` +
+              `"type":"module"). Known culprit: Next.js 16 Turbopack dev mode. ` +
+              `Workaround: use createWAF (single-threaded) or a bundler-specific opt-out. ` +
+              `Pass readyTimeoutMs to override this deadline.`,
+          ),
+      )
+    } catch (err) {
+      // Tear down any workers we did manage to spawn — otherwise they'd
+      // keep the event loop alive after the caller's `createWAFPool`
+      // promise rejects.
+      await Promise.allSettled(
+        slots.map(async (slot) => {
+          try {
+            await slot.worker.terminate()
+          } catch {
+            /* ignore */
+          }
+        }),
+      )
+      throw err
+    }
 
     const pool = new WAFPool(slots, logger, mode, workerConfig, maxReqs, wasmModule)
 
@@ -484,11 +554,38 @@ function defaultSize(): number {
     : os.cpus().length
 }
 
+async function withTimeout<T>(
+  p: Promise<T>,
+  ms: number,
+  mkErr: () => Error,
+): Promise<T> {
+  if (!Number.isFinite(ms)) return p
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      p,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(mkErr()), ms)
+        // Don't keep the event loop alive just for this watchdog; if the
+        // pool promise is going to resolve, the timer is redundant.
+        if (typeof (timer as unknown as { unref?: () => void }).unref === 'function') {
+          ;(timer as unknown as { unref: () => void }).unref()
+        }
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 function spawnSlot(logger: Logger, wasmModule?: WebAssembly.Module): WorkerSlot {
-  const workerUrl = new URL('./pool-worker.js', import.meta.url)
+  // `.mjs` so Node treats the worker as ESM regardless of what the
+  // surrounding bundler (Turbopack, webpack, etc.) does with package.json
+  // markers. See github.com/jptosso/coraza-node#8.
+  const workerUrl = new URL('./pool-worker.mjs', import.meta.url)
   const worker = new Worker(fileURLToPath(workerUrl), {
     // Don't inherit the parent's loader args (e.g. --import tsx) — the worker
-    // runs the pre-compiled pool-worker.js and doesn't need the TS loader.
+    // runs the pre-compiled pool-worker.mjs and doesn't need the TS loader.
     execArgv: [],
     // Structured clone carries the compiled WebAssembly.Module by reference
     // so the worker skips its own compile step.

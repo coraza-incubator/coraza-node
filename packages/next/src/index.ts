@@ -26,7 +26,6 @@ import type {
   AnyWAF,
   WAFLike,
   Interruption,
-  Logger,
   SkipOptions,
 } from '@coraza/core'
 import { buildSkipPredicate } from '@coraza/core'
@@ -56,13 +55,43 @@ export interface CorazaNextOptions {
 }
 
 /**
- * Build a Next.js middleware. Matches the adapter shape used by the
- * other frameworks (`coraza({ waf, ...options })`) — pass a single
- * object with a `waf` key.
+ * Outcome returned by {@link createCorazaRunner}.
+ *
+ * - `{ blocked: Response }` — Coraza (or the configured `onWAFError`
+ *   policy) has produced a terminal response; the caller must return it
+ *   unchanged. Do NOT compose further proxy logic on top — returning a
+ *   "soft" response after a block defeats the WAF.
+ * - `{ allow: true }` — the request passed Coraza. The caller is free to
+ *   run its own `proxy.ts` logic (auth, redirects, header rewrites, etc.)
+ *   and then `NextResponse.next()` (or whatever it normally returns).
  */
-export function coraza(
+export type CorazaDecision = { blocked: Response } | { allow: true }
+
+/**
+ * Build a runner that evaluates a request through Coraza and returns a
+ * structured decision — intended for projects that already have a
+ * `proxy.ts` and want to compose Coraza with their existing logic
+ * (auth, redirects, etc.) without sniffing `x-middleware-next` headers.
+ *
+ * ```ts
+ * // proxy.ts
+ * import { createCorazaRunner } from '@coraza/next'
+ * const runCoraza = createCorazaRunner({ waf })
+ *
+ * export async function proxy(req: NextRequest) {
+ *   const decision = await runCoraza(req)
+ *   if ('blocked' in decision) return decision.blocked
+ *   // ...existing auth / redirect logic
+ *   return NextResponse.next()
+ * }
+ * ```
+ *
+ * The decision contract is stable public API; the `x-middleware-next`
+ * trick used previously is not.
+ */
+export function createCorazaRunner(
   options: CorazaNextOptions,
-): (req: NextRequest) => Promise<Response> {
+): (req: NextRequest) => Promise<CorazaDecision> {
   const { waf: wafOrPromise, onBlock = defaultBlock, onWAFError = 'block' } = options
   const shouldSkip = options.skip === false ? () => false : buildSkipPredicate(options.skip)
 
@@ -73,9 +102,9 @@ export function coraza(
     return wafRef
   }
 
-  return async function corazaMiddleware(req: NextRequest): Promise<Response> {
+  return async function runCoraza(req: NextRequest): Promise<CorazaDecision> {
     const url = new URL(req.url)
-    if (shouldSkip(url.pathname)) return NextResponse.next()
+    if (shouldSkip(url.pathname)) return { allow: true }
 
     const waf = await ensureWAF()
     const log = waf.logger
@@ -85,16 +114,19 @@ export function coraza(
       tx = await waf.newTransaction()
     } catch (err) {
       log.error('coraza: newTransaction failed', { err: (err as Error).message })
-      return onWAFError === 'block'
-        ? onBlock(
+      if (onWAFError === 'block') {
+        return {
+          blocked: onBlock(
             { ruleId: 0, action: 'deny', status: 503, data: 'WAF unavailable', source: 'waf-error' },
             req,
-          )
-        : NextResponse.next()
+          ),
+        }
+      }
+      return { allow: true }
     }
 
     try {
-      if (await tx.isRuleEngineOff()) return NextResponse.next()
+      if (await tx.isRuleEngineOff()) return { allow: true }
 
       // Read the body up front (Next streams it); the bundle needs it
       // to guarantee phase 2 runs.
@@ -111,18 +143,28 @@ export function coraza(
         body,
       )
       if (interrupted) {
-        return handleBlock(await tx.interruption(), req, onBlock, log)
+        const interruption = await tx.interruption()
+        if (!interruption) return { allow: true }
+        log.warn('coraza: request blocked', {
+          ruleId: interruption.ruleId,
+          status: interruption.status,
+          action: interruption.action,
+        })
+        return { blocked: onBlock(interruption, req) }
       }
 
-      return NextResponse.next()
+      return { allow: true }
     } catch (err) {
       log.error('coraza: middleware error', { err: (err as Error).message })
-      return onWAFError === 'block'
-        ? onBlock(
+      if (onWAFError === 'block') {
+        return {
+          blocked: onBlock(
             { ruleId: 0, action: 'deny', status: 503, data: 'WAF internal error', source: 'waf-error' },
             req,
-          )
-        : NextResponse.next()
+          ),
+        }
+      }
+      return { allow: true }
     } finally {
       try {
         await tx.processLogging()
@@ -130,6 +172,28 @@ export function coraza(
         await tx.close()
       }
     }
+  }
+}
+
+/**
+ * Build a Next.js middleware. Matches the adapter shape used by the
+ * other frameworks (`coraza({ waf, ...options })`) — pass a single
+ * object with a `waf` key.
+ *
+ * Thin wrapper around {@link createCorazaRunner} that returns a
+ * `NextResponse.next()` on allow. If you need to compose with existing
+ * proxy logic (auth, redirects, etc.), use `createCorazaRunner` directly
+ * so the decision stays structured and you don't have to sniff
+ * `x-middleware-next` on the response.
+ */
+export function coraza(
+  options: CorazaNextOptions,
+): (req: NextRequest) => Promise<Response> {
+  const run = createCorazaRunner(options)
+  return async function corazaMiddleware(req: NextRequest): Promise<Response> {
+    const decision = await run(req)
+    if ('blocked' in decision) return decision.blocked
+    return NextResponse.next()
   }
 }
 
@@ -141,21 +205,6 @@ export function defaultBlock(interruption: Interruption, _req: NextRequest): Res
       headers: { 'content-type': 'text/plain; charset=utf-8' },
     },
   )
-}
-
-function handleBlock(
-  interruption: Interruption | null,
-  req: NextRequest,
-  onBlock: NonNullable<CorazaNextOptions['onBlock']>,
-  log: Logger,
-): Response {
-  if (!interruption) return NextResponse.next()
-  log.warn('coraza: request blocked', {
-    ruleId: interruption.ruleId,
-    status: interruption.status,
-    action: interruption.action,
-  })
-  return onBlock(interruption, req)
 }
 
 function headersOf(h: Headers): [string, string][] {
