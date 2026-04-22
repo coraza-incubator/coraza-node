@@ -16,8 +16,15 @@
     "@coraza/next": "0.0.0"
   },
   "changesets": [
+    "core-pool-mjs-worker-ready-timeout",
+    "crs-425-ftw-overrides-920640",
     "fastify-pool-response-phase",
     "initial-preview",
-    "rxmatch-fastpath"
+    "next-16-peer",
+    "next-compose-runner",
+    "next-readme-next16",
+    "org-transfer",
+    "rxmatch-fastpath",
+    "upstream-bump-20260422"
   ]
 }
