@@ -189,7 +189,13 @@ jobs:
       - name: Build example app + its deps
         # Topological build: pulls @coraza/core + @coraza/<adapter> +
         # @coraza/coreruleset + @coraza/example-shared in one shot.
-        run: pnpm turbo run build --filter=@coraza/example-${{ matrix.adapter }}...
+        # The next adapter's example directory is next16-app (Next 16 is
+        # our FTW target; Next 15 has identical middleware-response-body
+        # constraints, so there's no extra signal from running both legs).
+        run: |
+          example="${{ matrix.adapter }}"
+          if [ "$example" = "next" ]; then example="next16"; fi
+          pnpm turbo run build --filter=@coraza/example-$example...
 
       - name: Run go-ftw against ${{ matrix.adapter }}
         env:
