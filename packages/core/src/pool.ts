@@ -20,6 +20,7 @@ import { Worker } from 'node:worker_threads'
 import { fileURLToPath } from 'node:url'
 import { consoleLogger } from './logger.js'
 import { compileWasmModule } from './wasm.js'
+import { defaultWasmPath, defaultPoolWorkerPath } from './wasmResolve.js'
 import type {
   Interruption,
   Logger,
@@ -160,9 +161,7 @@ export class WAFPool {
     // pre-compiled module supplied by the caller.
     const wasmModule =
       config.wasmModule ??
-      (await compileWasmModule(
-        config.wasmSource ?? new URL('./wasm/coraza.wasm', import.meta.url),
-      ))
+      (await compileWasmModule(config.wasmSource ?? defaultWasmPath()))
     // Forward the compiled module to each worker via WAFConfig. No need to
     // also ship `wasmSource` — the worker's createWAF short-circuits on
     // `wasmModule` before reading any bytes. Strip `logger` because it
@@ -582,7 +581,10 @@ function spawnSlot(logger: Logger, wasmModule?: WebAssembly.Module): WorkerSlot 
   // `.mjs` so Node treats the worker as ESM regardless of what the
   // surrounding bundler (Turbopack, webpack, etc.) does with package.json
   // markers. See github.com/coraza-incubator/coraza-node#8.
-  const workerUrl = new URL('./pool-worker.mjs', import.meta.url)
+  // defaultPoolWorkerPath() has the same createRequire fallback as
+  // defaultWasmPath so Next.js 15's middleware bundler (which rewrites
+  // import.meta.url) doesn't explode on pool boot.
+  const workerUrl = defaultPoolWorkerPath()
   const worker = new Worker(fileURLToPath(workerUrl), {
     // Don't inherit the parent's loader args (e.g. --import tsx) — the worker
     // runs the pre-compiled pool-worker.mjs and doesn't need the TS loader.

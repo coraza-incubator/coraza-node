@@ -40,7 +40,9 @@
     "build": "tsup",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "e2e": "playwright test",
+    "e2e": "pnpm e2e:16 && pnpm e2e:15",
+    "e2e:15": "NEXT_VARIANT=15 playwright test",
+    "e2e:16": "NEXT_VARIANT=16 playwright test",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist coverage .turbo playwright-report test-results"
   },

@@ -51,7 +51,7 @@ const ADAPTERS: Record<string, AdapterDef> = {
   next: {
     name: 'next',
     port: 3003,
-    cwd: `${ROOT}examples/next-app`,
+    cwd: `${ROOT}examples/next16-app`,
     cmd: 'pnpm',
     args: ['dev'],
   },

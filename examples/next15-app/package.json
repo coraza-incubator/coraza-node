@@ -1,18 +1,19 @@
 {
-  "name": "@coraza/example-next",
+  "name": "@coraza/example-next15",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "next dev -p ${PORT:-3003}",
+    "dev": "next dev -p ${PORT:-3005}",
     "build": "next build",
-    "start": "next start -p ${PORT:-3003}"
+    "start": "next start -p ${PORT:-3005}"
   },
   "dependencies": {
     "@coraza/core": "workspace:*",
     "@coraza/coreruleset": "workspace:*",
     "@coraza/example-shared": "workspace:*",
     "@coraza/next": "workspace:*",
-    "next": "^16.0.0",
+    "next": "^15.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

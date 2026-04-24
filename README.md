@@ -78,11 +78,16 @@ under 50-VU mixed traffic. Detail + tuning knobs:
 
 ## Adapter caveat — Next.js
 
-Supported on Next.js 14, 15, and 16. See
-[`packages/next/README.md`](./packages/next/README.md) for the
-copy-pasteable `proxy.ts` (Next 16) / `middleware.ts` (Next 14/15)
-snippet, the `src/` layout note, and how to compose with an existing
-`proxy.ts`.
+Supported on Next.js 14, 15, and 16. Each version uses a different
+middleware filename and bundler — the adapter handles them uniformly,
+but see the table in [`packages/next/README.md`](./packages/next/README.md)
+for the exact filename / runtime-option / WASM-loader combination per
+version. Live examples:
+
+- [`examples/next15-app/`](./examples/next15-app/) — Next 15 +
+  `middleware.ts` (`runtime: 'nodejs'`).
+- [`examples/next16-app/`](./examples/next16-app/) — Next 16 +
+  `proxy.ts`.
 
 Next's middleware / proxy runs on the **request boundary only**. Route
 Handlers own the `Response`, and Next's runtime doesn't expose the

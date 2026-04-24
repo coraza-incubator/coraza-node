@@ -73,9 +73,15 @@ done
 case "${ADAPTER}" in
   express) DEFAULT_PORT=3001; PKG="@coraza/example-express" ;;
   fastify) DEFAULT_PORT=3002; PKG="@coraza/example-fastify" ;;
-  next)    DEFAULT_PORT=3003; PKG="@coraza/example-next" ;;
+  # FTW matrix targets the Next 16 (proxy.ts) pipeline by default; Next 15
+  # lives alongside for bundler-quirk coverage but shares the same CRS
+  # profile and overrides file so running it through FTW would be
+  # redundant. `--adapter next15` is exposed for local debugging only.
+  next)    DEFAULT_PORT=3003; PKG="@coraza/example-next16" ;;
+  next15)  DEFAULT_PORT=3005; PKG="@coraza/example-next15" ;;
+  next16)  DEFAULT_PORT=3003; PKG="@coraza/example-next16" ;;
   nestjs)  DEFAULT_PORT=3004; PKG="@coraza/example-nestjs" ;;
-  *) echo "unknown adapter: ${ADAPTER} (express|fastify|next|nestjs)" >&2; exit 2 ;;
+  *) echo "unknown adapter: ${ADAPTER} (express|fastify|next|next15|next16|nestjs)" >&2; exit 2 ;;
 esac
 PORT="${PORT:-${DEFAULT_PORT}}"
 
@@ -89,8 +95,17 @@ PORT="${PORT:-${DEFAULT_PORT}}"
 # keyed by rule_id). Our legacy files — `testoverride.input` + the
 # `ignore` map — are a valid `FTWConfiguration`, so we pass them via
 # `--config` instead.
-if [[ -f "${SCRIPT_DIR}/ftw-overrides-${ADAPTER}.yaml" ]]; then
-  CONFIG_TEMPLATE="${SCRIPT_DIR}/ftw-overrides-${ADAPTER}.yaml"
+#
+# Next has a single overrides file (`ftw-overrides-next.yaml`) shared
+# across both Next 15 and Next 16 — the runtime constraint that drives
+# the skip list (middleware can't read response bodies) is identical
+# between them.
+OVERRIDES_KEY="${ADAPTER}"
+case "${ADAPTER}" in
+  next15|next16) OVERRIDES_KEY="next" ;;
+esac
+if [[ -f "${SCRIPT_DIR}/ftw-overrides-${OVERRIDES_KEY}.yaml" ]]; then
+  CONFIG_TEMPLATE="${SCRIPT_DIR}/ftw-overrides-${OVERRIDES_KEY}.yaml"
 else
   CONFIG_TEMPLATE="${OVERRIDES_DEFAULT}"
 fi
@@ -174,12 +189,19 @@ trap cleanup EXIT
 BOOT_TIMEOUT="${BOOT_TIMEOUT:-180}"
 
 if [[ "${SKIP_BOOT}" != "1" ]]; then
-  if [[ "${ADAPTER}" == "next" ]]; then
-    # Next's Node-runtime middleware requires a production build.
-    (cd "${REPO_ROOT}/examples/next-app" && pnpm build) >"${BUILD_DIR}/next-build.log" 2>&1
+  # Next examples (both 15 and 16) need a production build before `start`.
+  # The directory name mirrors the adapter choice: next -> next16 (default),
+  # next15 -> next15. All other adapters run via `dev`.
+  NEXT_APP_DIR=""
+  case "${ADAPTER}" in
+    next|next16) NEXT_APP_DIR="next16-app" ;;
+    next15)      NEXT_APP_DIR="next15-app" ;;
+  esac
+  if [[ -n "${NEXT_APP_DIR}" ]]; then
+    (cd "${REPO_ROOT}/examples/${NEXT_APP_DIR}" && pnpm build) >"${BUILD_DIR}/next-build.log" 2>&1
   fi
   DEV_OR_START="dev"
-  [[ "${ADAPTER}" == "next" ]] && DEV_OR_START="start"
+  [[ -n "${NEXT_APP_DIR}" ]] && DEV_OR_START="start"
   echo "[ftw] Starting ${PKG} on :${PORT} (boot budget ${BOOT_TIMEOUT}s)…"
   # `setsid` creates a new session so the child gets its own process
   # group; kill -PGID later hits pnpm + tsx + node together. We install
