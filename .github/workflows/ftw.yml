@@ -91,7 +91,14 @@ jobs:
 
           picks=()
           for a in express fastify next nestjs; do
-            if echo "$changed" | grep -qE "^(packages/$a/|examples/$a-app/)"; then
+            # For the Next leg the matching directory is either next15-app
+            # or next16-app; FTW only runs against one of them (see
+            # testing/ftw/run.sh) but either change should trigger it.
+            example_re="^examples/$a-app/"
+            if [[ "$a" == "next" ]]; then
+              example_re="^examples/next(15|16)-app/"
+            fi
+            if echo "$changed" | grep -qE "^packages/$a/|$example_re"; then
               picks+=("\"$a\"")
             fi
           done
@@ -182,7 +189,13 @@ jobs:
       - name: Build example app + its deps
         # Topological build: pulls @coraza/core + @coraza/<adapter> +
         # @coraza/coreruleset + @coraza/example-shared in one shot.
-        run: pnpm turbo run build --filter=@coraza/example-${{ matrix.adapter }}...
+        # The next adapter's example directory is next16-app (Next 16 is
+        # our FTW target; Next 15 has identical middleware-response-body
+        # constraints, so there's no extra signal from running both legs).
+        run: |
+          example="${{ matrix.adapter }}"
+          if [ "$example" = "next" ]; then example="next16"; fi
+          pnpm turbo run build --filter=@coraza/example-$example...
 
       - name: Run go-ftw against ${{ matrix.adapter }}
         env:

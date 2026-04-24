@@ -3,6 +3,19 @@
 Next.js middleware adapter for [coraza-node](https://github.com/coraza-incubator/coraza-node).
 Node runtime only — the Edge runtime lacks WASI.
 
+## Supported versions
+
+| Next | File            | Runtime opt-in    | WASM loader path |
+| ---- | --------------- | ----------------- | ---------------- |
+| 14   | `middleware.ts` | `runtime:'nodejs'`| `new URL(..., import.meta.url)` works directly. |
+| 15   | `middleware.ts` | `runtime:'nodejs'`| Next 15 rewrites `import.meta.url` to a sentinel; `@coraza/core` falls back through `createRequire` automatically. No user action. |
+| 16   | `proxy.ts`      | none — rejected   | `import.meta.url` is preserved; default path works directly. |
+
+Example apps in this repo covering both filename conventions:
+
+- [`examples/next15-app/`](../../examples/next15-app/) — Next 15 + `middleware.ts`.
+- [`examples/next16-app/`](../../examples/next16-app/) — Next 16 + `proxy.ts`.
+
 ## Quick start
 
 ```ts
@@ -25,8 +38,25 @@ export const config = { matcher: '/:path*' }
 > **Next 16:** do **not** set `runtime: 'nodejs'` on the `config` export —
 > Next 16's `proxy.ts` defaults to the Node.js runtime and rejects the
 > option outright (`The runtime config option is not available in Proxy
-> files`). On Next 14/15 the option is accepted but also unnecessary
-> because Node is the default for `middleware.ts`.
+> files`). On Next 14/15 the option is accepted and required to pin
+> middleware off the Edge runtime.
+
+## Known bundler quirks
+
+- **Next 15 rewrites `import.meta.url` in middleware.** Previously this
+  made `createWAF()` throw `unsupported URL protocol:` at boot.
+  `@coraza/core` now catches that and falls back to
+  `createRequire(import.meta.url).resolve('@coraza/core/package.json')`
+  to locate the shipped WASM, which Node resolves irrespective of what
+  the bundler did to `import.meta.url`. The same fallback covers
+  `pool-worker.mjs` for `createWAFPool`. No code change required in
+  your `middleware.ts`.
+- **Turbopack + threaded pool (Next 16 dev mode).** `createWAFPool`
+  emits a `.mjs` worker so Node always treats it as ESM even when
+  Turbopack re-emits chunks without the `"type":"module"` marker. If
+  the pool ever fails to initialize, `createWAFPool` rejects within
+  `readyTimeoutMs` (default 10 s) with an actionable error. Fall back
+  to `createWAF` (single-threaded) if you hit this.
 
 ### File location (important with `src/` layout)
 
@@ -36,22 +66,6 @@ file at the repo root is silently ignored and the adapter runs zero code
 
 - `src/` layout → `src/proxy.ts` (or `src/middleware.ts` on 14/15)
 - Flat layout → `proxy.ts` at the project root
-
-### Threaded pool under Turbopack dev (Next 16)
-
-`createWAFPool` spawns `node:worker_threads` and loads a `.mjs` file for
-the worker body so Node always treats it as an ES module, regardless of
-what the bundler does around it. If the pool ever fails to come up, the
-`createWAFPool` promise rejects within `readyTimeoutMs` (default 10 s)
-with an actionable error — no more silent hangs.
-
-If you still hit bundler trouble, fall back to `createWAF`
-(single-threaded) — it works identically from the adapter's perspective:
-
-```ts
-const waf = createWAF({ rules: recommended(), mode: 'block' })
-export const proxy = coraza({ waf })
-```
 
 ### Composing with an existing `proxy.ts`
 

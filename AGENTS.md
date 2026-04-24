@@ -37,8 +37,11 @@ packages/
 examples/
   shared/                   Canonical HTTP contract imported by every app
   express-app/  fastify-app/
-  next-app/     nestjs-app/ Runnable demos + E2E fixtures (all implement
-                            the shared contract so benchmarks are apples-to-apples)
+  next15-app/   next16-app/ Runnable demos + E2E fixtures (all implement
+  nestjs-app/               the shared contract so benchmarks are
+                            apples-to-apples). next15-app uses
+                            middleware.ts + runtime:'nodejs'; next16-app
+                            uses proxy.ts.
 
 bench/                      E2E bench runners:
                               run.ts       — autocannon, fast per-route

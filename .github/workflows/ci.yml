@@ -127,7 +127,8 @@ jobs:
           - '@coraza/example-express'
           - '@coraza/example-fastify'
           - '@coraza/example-nestjs'
-          - '@coraza/example-next'
+          - '@coraza/example-next15'
+          - '@coraza/example-next16'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -149,11 +150,11 @@ jobs:
       - name: Typecheck
         run: pnpm turbo run typecheck --filter=${{ matrix.package }}
 
-      # Only example-next has a real `build` script (next build). The
-      # other three examples are run via `tsx src/server.ts` at dev time
+      # Only the Next examples have a real `build` script (next build).
+      # The other examples are run via `tsx src/server.ts` at dev time
       # and don't emit artifacts.
       - name: Build (next only)
-        if: matrix.package == '@coraza/example-next'
+        if: matrix.package == '@coraza/example-next15' || matrix.package == '@coraza/example-next16'
         run: pnpm -F ${{ matrix.package }} build
 
   e2e:
@@ -213,8 +214,15 @@ jobs:
       # Build the example app's full dependency graph. That's the adapter
       # + its own deps (core) AND @coraza/coreruleset, which every example
       # server imports directly but isn't a dep of the adapter package.
+      # For Next, build both next15 and next16 examples so `pnpm e2e`
+      # (which chains both variants) has a server to talk to in each leg.
       - name: Build example app + deps
+        if: matrix.adapter != 'next'
         run: pnpm turbo run build --filter=@coraza/example-${{ matrix.adapter }}...
+      - name: Build both Next examples + deps
+        if: matrix.adapter == 'next'
+        run: |
+          pnpm turbo run build --filter=@coraza/example-next15... --filter=@coraza/example-next16...
       - name: E2E
         run: pnpm -F @coraza/${{ matrix.adapter }} e2e
 

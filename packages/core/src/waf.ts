@@ -2,6 +2,7 @@ import { Abi, utf8 } from './abi.js'
 import { instantiate } from './wasm.js'
 import { consoleLogger } from './logger.js'
 import { Transaction } from './transaction.js'
+import { defaultWasmPath } from './wasmResolve.js'
 import type { Logger, Mode, WAFConfig } from './types.js'
 
 /**
@@ -84,8 +85,4 @@ function wrapDirectives(userRules: string, mode: Mode): string {
   return `${userRules}\n${engineLine}\n`
 }
 
-function defaultWasmPath(): URL {
-  // The compiled WASM ships alongside the JS bundle at dist/wasm/coraza.wasm.
-  return new URL('./wasm/coraza.wasm', import.meta.url)
-}
 
