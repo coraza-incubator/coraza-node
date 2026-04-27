@@ -415,5 +415,7 @@ a failure is framework noise or an engine regression.
 | Static-file bypass logic | `packages/core/src/skip.ts` (NOT per-adapter) |
 | CRS profile preset | `packages/coreruleset/src/index.ts` |
 | CI / release workflow | `.github/workflows/*.yml` |
+| Bundler / framework matrix (workspace install) | `testing/matrix/cases/*` + `.github/workflows/matrix.yml` |
+| Package-manager matrix (tarball install) | `testing/matrix/pm-consumers/*` + `.github/workflows/matrix-pkg-managers.yml` |
 | FTW corpus / overrides | `testing/ftw/*` + `.github/workflows/ftw.yml` |
 | Docs an agent will read | THIS FILE. Not a new doc. |
